@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -22,7 +22,7 @@ public enum PushRegistrationError: Error {
     // MARK: - Dependencies
 
     private var messageFetcherJob: MessageFetcherJob {
-        return AppEnvironment.shared.messageFetcherJob
+        return SSKEnvironment.shared.messageFetcherJob
     }
 
     private var notificationPresenter: NotificationPresenter {
@@ -58,9 +58,9 @@ public enum PushRegistrationError: Error {
     public func requestPushTokens() -> Promise<(pushToken: String, voipToken: String)> {
         Logger.info("")
 
-        return DispatchQueue.main.async(.promise) {
+        return firstly { () -> Promise<Void> in
             return self.registerUserNotificationSettings()
-        }.then { () -> Promise<(pushToken: String, voipToken: String)> in
+        }.then { (_) -> Promise<(pushToken: String, voipToken: String)> in
             guard !Platform.isSimulator else {
                 throw PushRegistrationError.pushNotSupported(description: "Push not supported on simulators")
             }
@@ -110,7 +110,7 @@ public enum PushRegistrationError: Error {
                 preauthChallengeResolver.fulfill(challenge)
                 self.preauthChallengeResolver = nil
             } else {
-                (self.messageFetcherJob.run() as Promise<Void>).retainUntilComplete()
+                self.messageFetcherJob.run()
             }
         }
     }
@@ -138,8 +138,8 @@ public enum PushRegistrationError: Error {
     // User notification settings must be registered *before* AppDelegate will
     // return any requested push tokens.
     public func registerUserNotificationSettings() -> Promise<Void> {
-        AssertIsOnMainThread()
         Logger.info("registering user notification settings")
+
         return notificationPresenter.registerNotificationSettings()
     }
 
@@ -154,17 +154,21 @@ public enum PushRegistrationError: Error {
 
         // Only affects users who have disabled both: background refresh *and* notifications
         guard UIApplication.shared.backgroundRefreshStatus == .denied else {
+            Logger.info("has backgroundRefreshStatus != .denied, not susceptible to push registration failure")
             return false
         }
 
         guard let notificationSettings = UIApplication.shared.currentUserNotificationSettings else {
+            owsFailDebug("notificationSettings was unexpectedly nil.")
             return false
         }
 
         guard notificationSettings.types == [] else {
+            Logger.info("notificationSettings was not empty, not susceptible to push registration failure.")
             return false
         }
 
+        Logger.info("background refresh and notifications were disabled. Device is susceptible to push registration failure.")
         return true
     }
 
@@ -186,11 +190,11 @@ public enum PushRegistrationError: Error {
 
         UIApplication.shared.registerForRemoteNotifications()
 
-        let kTimeout: TimeInterval = 10
-        let timeout: Promise<Data> = after(seconds: kTimeout).map { throw PushRegistrationError.timeout }
-        let promiseWithTimeout: Promise<Data> = race(promise, timeout)
-
-        return promiseWithTimeout.recover { error -> Promise<Data> in
+        return firstly {
+            promise.timeout(seconds: 10, description: "Register for vanilla push token") {
+                PushRegistrationError.timeout
+            }
+        }.recover { error -> Promise<Data> in
             switch error {
             case PushRegistrationError.timeout:
                 if self.isSusceptibleToFailedPushRegistration {
@@ -198,6 +202,7 @@ public enum PushRegistrationError: Error {
                     // so the user doesn't remain indefinitely hung for no good reason.
                     throw PushRegistrationError.pushNotSupported(description: "Device configuration disallows push notifications")
                 } else {
+                    Logger.info("Push registration is taking a while. Continuing to wait since this configuration is not known to fail push registration.")
                     // Sometimes registration can just take a while.
                     // If we're not on a device known to be susceptible to push registration failure,
                     // just return the original promise.

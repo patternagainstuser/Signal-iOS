@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2021 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSOutgoingNullMessage.h"
@@ -13,7 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface OWSOutgoingNullMessage ()
 
-@property (nonatomic, readonly) OWSVerificationStateSyncMessage *verificationStateSyncMessage;
+@property (nonatomic, nullable, readonly) OWSVerificationStateSyncMessage *verificationStateSyncMessage;
 
 @end
 
@@ -22,22 +22,18 @@ NS_ASSUME_NONNULL_BEGIN
 @implementation OWSOutgoingNullMessage
 
 - (instancetype)initWithContactThread:(TSContactThread *)contactThread
+{
+    TSOutgoingMessageBuilder *messageBuilder =
+        [TSOutgoingMessageBuilder outgoingMessageBuilderWithThread:contactThread];
+    return [super initOutgoingMessageWithBuilder:messageBuilder];
+}
+
+- (instancetype)initWithContactThread:(TSContactThread *)contactThread
          verificationStateSyncMessage:(OWSVerificationStateSyncMessage *)verificationStateSyncMessage
 {
-    // MJK TODO - remove senderTimestamp
-    self = [super initOutgoingMessageWithTimestamp:[NSDate ows_millisecondTimeStamp]
-                                          inThread:contactThread
-                                       messageBody:nil
-                                     attachmentIds:[NSMutableArray new]
-                                  expiresInSeconds:0
-                                   expireStartedAt:0
-                                    isVoiceMessage:NO
-                                  groupMetaMessage:TSGroupMetaMessageUnspecified
-                                     quotedMessage:nil
-                                      contactShare:nil
-                                       linkPreview:nil
-                                    messageSticker:nil
-                                 isViewOnceMessage:NO];
+    TSOutgoingMessageBuilder *messageBuilder =
+        [TSOutgoingMessageBuilder outgoingMessageBuilderWithThread:contactThread];
+    self = [super initOutgoingMessageWithBuilder:messageBuilder];
     if (!self) {
         return self;
     }
@@ -49,26 +45,28 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - override TSOutgoingMessage
 
-- (nullable NSData *)buildPlainTextData:(SignalRecipient *)recipient
+- (nullable NSData *)buildPlainTextData:(SignalServiceAddress *)address
                                  thread:(TSThread *)thread
                             transaction:(SDSAnyReadTransaction *)transaction
 {
     SSKProtoNullMessageBuilder *nullMessageBuilder = [SSKProtoNullMessage builder];
 
-    NSUInteger contentLength = self.verificationStateSyncMessage.unpaddedVerifiedLength;
+    if (self.verificationStateSyncMessage) {
+        NSUInteger contentLength = self.verificationStateSyncMessage.unpaddedVerifiedLength;
 
-    OWSAssertDebug(self.verificationStateSyncMessage.paddingBytesLength > 0);
+        OWSAssertDebug(self.verificationStateSyncMessage.paddingBytesLength > 0);
 
-    // We add the same amount of padding in the VerificationStateSync message and it's coresponding NullMessage so that
-    // the sync message is indistinguishable from an outgoing Sent transcript corresponding to the NullMessage. We pad
-    // the NullMessage so as to obscure it's content. The sync message (like all sync messages) will be *additionally*
-    // padded by the superclass while being sent. The end result is we send a NullMessage of a non-distinct size, and a
-    // verification sync which is ~1-512 bytes larger then that.
-    contentLength += self.verificationStateSyncMessage.paddingBytesLength;
+        // We add the same amount of padding in the VerificationStateSync message and it's coresponding NullMessage so
+        // that the sync message is indistinguishable from an outgoing Sent transcript corresponding to the NullMessage.
+        // We pad the NullMessage so as to obscure it's content. The sync message (like all sync messages) will be
+        // *additionally* padded by the superclass while being sent. The end result is we send a NullMessage of a
+        // non-distinct size, and a verification sync which is ~1-512 bytes larger then that.
+        contentLength += self.verificationStateSyncMessage.paddingBytesLength;
 
-    OWSAssertDebug(contentLength > 0);
+        OWSAssertDebug(contentLength > 0);
 
-    nullMessageBuilder.padding = [Cryptography generateRandomBytes:contentLength];
+        nullMessageBuilder.padding = [Cryptography generateRandomBytes:contentLength];
+    }
 
     NSError *error;
     SSKProtoNullMessage *_Nullable nullMessage = [nullMessageBuilder buildAndReturnError:&error];

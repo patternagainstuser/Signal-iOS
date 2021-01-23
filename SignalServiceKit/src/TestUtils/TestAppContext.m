@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 #import "TestAppContext.h"
@@ -103,7 +103,7 @@ NS_ASSUME_NONNULL_BEGIN
 {
 }
 
-- (void)ensureSleepBlocking:(BOOL)shouldBeBlocking blockingObjects:(NSArray<id> *)blockingObjects
+- (void)ensureSleepBlocking:(BOOL)shouldBeBlocking blockingObjectsDescription:(NSString *)blockingObjectsDescription
 {
 }
 
@@ -114,6 +114,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable UIViewController *)frontmostViewController
 {
     return nil;
+}
+
+- (void)openSystemSettings
+{
 }
 
 - (nullable UIAlertAction *)openSystemSettingsActionWithCompletion:(void (^_Nullable)(void))completion
@@ -136,7 +140,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (CGRect)frame
 {
-    return CGRectZero;
+    // Pretend to be a small device.
+    return CGRectMake(0, 0, 300, 400);
 }
 
 - (UIInterfaceOrientation)interfaceOrientation
@@ -177,6 +182,38 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSString *)appDatabaseBaseDirectoryPath
 {
     return self.appSharedDataDirectoryPath;
+}
+
+- (BOOL)canPresentNotifications
+{
+    return NO;
+}
+
+- (BOOL)shouldProcessIncomingMessages
+{
+    return YES;
+}
+
+- (BOOL)hasUI
+{
+    return YES;
+}
+
+- (BOOL)didLastLaunchNotTerminate
+{
+    return NO;
+}
+
+- (NSString *)debugLogsDirPath
+{
+    return TestAppContext.testDebugLogsDirPath;
+}
+
++ (NSString *)testDebugLogsDirPath
+{
+    NSString *dirPath = [OWSTemporaryDirectory() stringByAppendingPathComponent:@"TestLogs"];
+    [OWSFileSystem ensureDirectoryExists:dirPath];
+    return dirPath;
 }
 
 @end

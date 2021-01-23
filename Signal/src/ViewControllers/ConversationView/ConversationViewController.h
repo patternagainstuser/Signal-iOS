@@ -1,7 +1,8 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2021 Open Whisper Systems. All rights reserved.
 //
 
+#import "ConversationInputToolbar.h"
 #import <SignalMessaging/OWSViewController.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -11,27 +12,50 @@ typedef NS_ENUM(NSUInteger, ConversationViewAction) {
     ConversationViewActionCompose,
     ConversationViewActionAudioCall,
     ConversationViewActionVideoCall,
+    ConversationViewActionGroupCallLobby,
+    ConversationViewActionNewGroupActionSheet
 };
 
-@class TSInteraction;
+@class CVLoadCoordinator;
+@class CVViewState;
+@class ConversationCollectionView;
+@class ConversationHeaderView;
+@class ConversationSearchController;
+@class ConversationStyle;
+@class ConversationViewLayout;
+@class MessageActionsToolbar;
+@class SDSAnyReadTransaction;
+@class SDSDatabaseStorage;
+@class SelectionHighlightView;
+@class TSMessage;
 @class TSThread;
+@class ThreadViewModel;
 
-@interface ConversationViewController : OWSViewController
+@protocol CVComponentDelegate;
 
-@property (nonatomic, readonly) TSThread *thread;
+@interface ConversationViewController : OWSViewController <CVComponentDelegate>
 
-- (void)configureForThread:(TSThread *)thread
-                    action:(ConversationViewAction)action
-            focusMessageId:(nullable NSString *)focusMessageId;
+@property (nonatomic, readonly) CGFloat safeContentHeight;
 
-- (void)popKeyBoard;
+@property (nonatomic, readonly) CVLoadCoordinator *loadCoordinator;
+@property (nonatomic, nullable, readonly) NSArray<TSMessage *> *unreadMentionMessages;
 
-- (void)scrollToFirstUnreadMessage:(BOOL)isAnimated;
++ (instancetype)new NS_UNAVAILABLE;
+- (instancetype)init NS_UNAVAILABLE;
 
-#pragma mark 3D Touch Methods
+- (instancetype)initWithThreadViewModel:(ThreadViewModel *)threadViewModel
+                                 action:(ConversationViewAction)action
+                         focusMessageId:(nullable NSString *)focusMessageId NS_DESIGNATED_INITIALIZER;
 
-- (void)peekSetup;
-- (void)popped;
+- (void)updateMessageActionsStateForCell:(UIView *)cell;
+
+- (ConversationInputToolbar *)buildInputToolbar:(ConversationStyle *)conversationStyle
+                                   messageDraft:(nullable MessageBody *)messageDraft
+    NS_SWIFT_NAME(buildInputToolbar(conversationStyle:messageDraft:));
+
+#pragma mark 3D Touch/UIContextMenu Methods
+
+- (void)previewSetup;
 
 #pragma mark - Keyboard Shortcuts
 
@@ -41,21 +65,60 @@ typedef NS_ENUM(NSUInteger, ConversationViewAction) {
 - (void)openStickerKeyboard;
 - (void)openAttachmentKeyboard;
 - (void)openGifSearch;
+- (void)dismissMessageActionsAnimated:(BOOL)animated;
+- (void)dismissMessageActionsAnimated:(BOOL)animated completion:(void (^)(void))completion;
+
+@property (nonatomic, readonly) BOOL isShowingSelectionUI;
 
 @end
 
 #pragma mark - Internal Methods. Used in extensions
 
-@class ConversationCollectionView;
-@class ConversationViewModel;
-@class SDSDatabaseStorage;
+typedef NS_CLOSED_ENUM(NSUInteger, ConversationUIMode) {
+    ConversationUIMode_Normal,
+    ConversationUIMode_Search,
+    ConversationUIMode_Selection
+};
 
 @interface ConversationViewController (Internal)
 
 @property (nonatomic, readonly) ConversationCollectionView *collectionView;
-@property (nonatomic, readonly) ConversationViewModel *conversationViewModel;
-@property (nonatomic, readonly) SDSDatabaseStorage *databaseStorage;
 @property (nonatomic, readonly) BOOL isViewVisible;
+@property (nonatomic, readonly) BOOL isPresentingMessageActions;
+@property (nonatomic, readonly) ConversationHeaderView *headerView;
+
+@property (nonatomic, readonly) ConversationViewLayout *layout;
+@property (nonatomic, readonly) CVViewState *viewState;
+
+- (void)updateBarButtonItems;
+- (void)ensureBannerState;
+
+// TODO: Remove or rework method.
+- (void)reloadCollectionView;
+
+- (void)updateNavigationBarSubtitleLabel;
+- (void)dismissMessageActionsIfNecessary;
+- (void)reloadReactionsDetailSheetWithTransaction:(SDSAnyReadTransaction *)transaction;
+- (void)updateNavigationTitle;
+- (void)updateUnreadMessageFlagWithTransaction:(SDSAnyReadTransaction *)transaction;
+- (void)updateUnreadMessageFlagUsingAsyncTransaction;
+- (void)configureScrollDownButtons;
+- (void)performBatchUpdates:(void (^_Nonnull)(void))batchUpdates
+                 completion:(void (^_Nonnull)(BOOL))completion
+            logFailureBlock:(void (^_Nonnull)(void))logFailureBlock
+       shouldAnimateUpdates:(BOOL)shouldAnimateUpdates;
+- (BOOL)autoLoadMoreIfNecessary;
+
+#pragma mark - Search
+
+@property (nonatomic, readonly) ConversationSearchController *searchController;
+
+#pragma mark - Selection
+
+@property (nonatomic, readonly) MessageActionsToolbar *selectionToolbar;
+@property (nonatomic, readonly) SelectionHighlightView *selectionHighlightView;
+
+@property (nonatomic, readonly) id<CVComponentDelegate> componentDelegate;
 
 @end
 

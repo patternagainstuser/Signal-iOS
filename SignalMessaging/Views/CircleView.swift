@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 import UIKit
@@ -21,7 +21,7 @@ public class CircleView: UIView {
     public required init(diameter: CGFloat) {
         super.init(frame: .zero)
 
-        autoSetDimensions(to: CGSize(width: diameter, height: diameter))
+        autoSetDimensions(to: CGSize(square: diameter))
     }
 
     @objc
@@ -40,5 +40,44 @@ public class CircleView: UIView {
 
     private func updateRadius() {
         self.layer.cornerRadius = self.bounds.size.height / 2
+    }
+}
+
+@objc (OWSPillView)
+public class PillView: UIView {
+
+    public override init(frame: CGRect) {
+        super.init(frame: frame)
+
+        // Constrain to be a pill that is at least a circle, and maybe wider.
+        autoPin(toAspectRatio: 1.0, relation: .greaterThanOrEqual)
+
+        // low priority contstraint to ensure the pill
+        // is no taller than necessary
+        NSLayoutConstraint.autoSetPriority(.defaultLow) {
+            self.autoSetDimension(.height, toSize: 0)
+        }
+    }
+
+    required init?(coder aDecoder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    @objc
+    override public var frame: CGRect {
+        didSet {
+            updateRadius()
+        }
+    }
+
+    @objc
+    override public var bounds: CGRect {
+        didSet {
+            updateRadius()
+        }
+    }
+
+    private func updateRadius() {
+        layer.cornerRadius = bounds.size.height / 2
     }
 }

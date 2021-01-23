@@ -1,8 +1,9 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 #import "ShareAppExtensionContext.h"
+#import <SignalMessaging/DebugLogger.h>
 #import <SignalMessaging/UIViewController+OWS.h>
 #import <SignalServiceKit/SignalServiceKit-Swift.h>
 #import <SignalServiceKit/TSConstants.h>
@@ -206,7 +207,7 @@ NS_ASSUME_NONNULL_BEGIN
     OWSAssertDebug(backgroundTaskIdentifier == UIBackgroundTaskInvalid);
 }
 
-- (void)ensureSleepBlocking:(BOOL)shouldBeBlocking blockingObjects:(NSArray<id> *)blockingObjects
+- (void)ensureSleepBlocking:(BOOL)shouldBeBlocking blockingObjectsDescription:(NSString *)blockingObjectsDescription
 {
     OWSLogDebug(@"Ignoring request to block sleep.");
 }
@@ -221,6 +222,11 @@ NS_ASSUME_NONNULL_BEGIN
     OWSAssertDebug(self.rootViewController);
 
     return [self.rootViewController findFrontmostViewController:YES];
+}
+
+- (void)openSystemSettings
+{
+    return;
 }
 
 - (nullable ActionSheetAction *)openSystemSettingsActionWithCompletion:(void (^_Nullable)(void))completion
@@ -289,7 +295,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSString *)appSharedDataDirectoryPath
 {
     NSURL *groupContainerDirectoryURL =
-        [[NSFileManager defaultManager] containerURLForSecurityApplicationGroupIdentifier:SignalApplicationGroup];
+        [[NSFileManager defaultManager] containerURLForSecurityApplicationGroupIdentifier:TSConstants.applicationGroup];
     return [groupContainerDirectoryURL path];
 }
 
@@ -300,7 +306,32 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (NSUserDefaults *)appUserDefaults
 {
-    return [[NSUserDefaults alloc] initWithSuiteName:SignalApplicationGroup];
+    return [[NSUserDefaults alloc] initWithSuiteName:TSConstants.applicationGroup];
+}
+
+- (BOOL)canPresentNotifications
+{
+    return NO;
+}
+
+- (BOOL)shouldProcessIncomingMessages
+{
+    return NO;
+}
+
+- (BOOL)hasUI
+{
+    return YES;
+}
+
+- (BOOL)didLastLaunchNotTerminate
+{
+    return NO;
+}
+
+- (NSString *)debugLogsDirPath
+{
+    return DebugLogger.shareExtensionDebugLogsDirPath;
 }
 
 @end

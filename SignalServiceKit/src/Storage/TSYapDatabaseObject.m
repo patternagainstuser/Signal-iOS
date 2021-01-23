@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 #import "TSYapDatabaseObject.h"
@@ -257,6 +257,11 @@ NS_ASSUME_NONNULL_BEGIN
     // Do nothing.
 }
 
+- (NSString *)transactionFinalizationKey
+{
+    return [NSString stringWithFormat:@"%@.%@", self.class.collection, self.uniqueId];
+}
+
 #pragma mark - SDSRecordDelegate
 
 - (void)updateRowId:(int64_t)rowId
@@ -266,6 +271,11 @@ NS_ASSUME_NONNULL_BEGIN
         OWSFailDebug(@"grdbId set more than once.");
     }
     self.grdbId = @(rowId);
+}
+
+- (void)clearRowId
+{
+    self.grdbId = nil;
 }
 
 @end

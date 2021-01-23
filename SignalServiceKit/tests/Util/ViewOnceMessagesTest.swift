@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -10,7 +10,7 @@ import XCTest
 class ViewOnceMessagesTest: SSKBaseTestSwift {
 
     private var tsAccountManager: TSAccountManager {
-        return TSAccountManager.sharedInstance()
+        return TSAccountManager.shared()
     }
 
     // MARK: -
@@ -30,13 +30,13 @@ class ViewOnceMessagesTest: SSKBaseTestSwift {
     func test_expiration() {
 
         let messageCount = { () -> Int in
-            return self.databaseStorage.readReturningResult { transaction in
+            return self.databaseStorage.read { transaction in
                 return TSInteraction.anyFetchAll(transaction: transaction).count
             }
         }
         let latestCopy = { (message: TSMessage) -> TSMessage in
             let uniqueId = message.uniqueId
-            return self.databaseStorage.readReturningResult { transaction in
+            return self.databaseStorage.read { transaction in
                 return TSMessage.anyFetch(uniqueId: uniqueId, transaction: transaction) as! TSMessage
             }
         }

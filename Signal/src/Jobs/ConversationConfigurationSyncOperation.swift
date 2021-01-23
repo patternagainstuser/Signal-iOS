@@ -1,8 +1,9 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
+import PromiseKit
 
 @objc
 class ConversationConfigurationSyncOperation: OWSOperation {
@@ -21,7 +22,7 @@ class ConversationConfigurationSyncOperation: OWSOperation {
         return Environment.shared.contactsManager
     }
 
-    private var syncManager: OWSSyncManagerProtocol {
+    private var syncManager: SyncManagerProtocol {
         return SSKEnvironment.shared.syncManager
     }
 
@@ -50,8 +51,7 @@ class ConversationConfigurationSyncOperation: OWSOperation {
     }
 
     private func reportAssertionError(description: String) {
-        let error: NSError = ColorSyncOperationError.assertionError(description: description) as NSError
-        error.isRetryable = false
+        let error = ColorSyncOperationError.assertionError(description: description).asRetryableError
         self.reportError(error)
     }
 
@@ -61,7 +61,11 @@ class ConversationConfigurationSyncOperation: OWSOperation {
             return
         }
 
-        syncManager.syncContacts(for: [signalAccount]).retainUntilComplete()
+        firstly {
+            syncManager.syncContacts(forSignalAccounts: [signalAccount])
+        }.catch { error in
+            Logger.warn("Error: \(error)")
+        }
     }
 
     private func sync(groupThread: TSGroupThread) {
@@ -75,7 +79,7 @@ class ConversationConfigurationSyncOperation: OWSOperation {
         }
         let syncMessage = OWSSyncGroupsMessage(thread: thread)
         do {
-            let attachmentDataSource: DataSource = try self.databaseStorage.readReturningResult { transaction in
+            let attachmentDataSource: DataSource = try self.databaseStorage.read { transaction in
                 guard let messageData: Data = syncMessage.buildPlainTextAttachmentData(with: transaction) else {
                     throw OWSAssertionError("could not serialize sync groups data")
                 }

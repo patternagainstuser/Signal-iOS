@@ -1,9 +1,8 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2021 Open Whisper Systems. All rights reserved.
 //
 
 #import "ConversationInputToolbar.h"
-#import "ConversationInputTextView.h"
 #import "Environment.h"
 #import "OWSContactsManager.h"
 #import "OWSMath.h"
@@ -11,10 +10,10 @@
 #import "UIFont+OWS.h"
 #import "ViewControllerUtils.h"
 #import <PromiseKit/AnyPromise.h>
-#import <SignalMessaging/OWSFormat.h>
 #import <SignalMessaging/SignalMessaging-Swift.h>
 #import <SignalMessaging/UIView+OWS.h>
 #import <SignalServiceKit/NSTimer+OWS.h>
+#import <SignalServiceKit/OWSFormat.h>
 #import <SignalServiceKit/SignalServiceKit-Swift.h>
 #import <SignalServiceKit/TSQuotedMessage.h>
 
@@ -28,9 +27,7 @@ typedef NS_CLOSED_ENUM(NSUInteger, VoiceMemoRecordingState){
 
 typedef NS_CLOSED_ENUM(NSUInteger, KeyboardType) { KeyboardType_System, KeyboardType_Sticker, KeyboardType_Attachment };
 
-static void *kConversationInputTextViewObservingContext = &kConversationInputTextViewObservingContext;
-
-const CGFloat kMinTextViewHeight = 38;
+const CGFloat kMinTextViewHeight = 36;
 const CGFloat kMinToolbarItemHeight = 44;
 const CGFloat kMaxTextViewHeight = 98;
 const CGFloat kMaxIPadTextViewHeight = 142;
@@ -39,7 +36,7 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 
 @interface InputLinkPreview : NSObject
 
-@property (nonatomic) NSString *previewUrl;
+@property (nonatomic) NSURL *previewUrl;
 @property (nonatomic, nullable) OWSLinkPreviewDraft *linkPreviewDraft;
 
 @end
@@ -60,9 +57,11 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 
 @property (nonatomic, readonly) ConversationStyle *conversationStyle;
 
+@property (nonatomic, weak) id<ConversationInputToolbarDelegate> inputToolbarDelegate;
+
 @property (nonatomic, readonly) ConversationInputTextView *inputTextView;
 @property (nonatomic, readonly) UIButton *cameraButton;
-@property (nonatomic, readonly) UIButton *attachmentButton;
+@property (nonatomic, readonly) LottieToggleButton *attachmentButton;
 @property (nonatomic, readonly) UIButton *sendButton;
 @property (nonatomic, readonly) UIButton *voiceMemoButton;
 @property (nonatomic, readonly) UIButton *stickerButton;
@@ -96,13 +95,13 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 @property (nonatomic) BOOL wasLinkPreviewCancelled;
 @property (nonatomic, nullable, weak) LinkPreviewView *linkPreviewView;
 @property (nonatomic, nullable, weak) UIView *stickerTooltip;
+@property (nonatomic) BOOL isConfigurationComplete;
 
 #pragma mark - Keyboards
 
 @property (nonatomic) KeyboardType desiredKeyboardType;
 @property (nonatomic, readonly) StickerKeyboard *stickerKeyboard;
 @property (nonatomic, readonly) AttachmentKeyboard *attachmentKeyboard;
-@property (nonatomic) BOOL isMeasuringKeyboardHeight;
 
 @end
 
@@ -110,15 +109,26 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 
 @implementation ConversationInputToolbar
 
+@synthesize stickerKeyboard = _stickerKeyboard;
+@synthesize attachmentKeyboard = _attachmentKeyboard;
+
 - (instancetype)initWithConversationStyle:(ConversationStyle *)conversationStyle
+                             messageDraft:(nullable MessageBody *)messageDraft
+                     inputToolbarDelegate:(id<ConversationInputToolbarDelegate>)inputToolbarDelegate
+                    inputTextViewDelegate:(id<ConversationInputTextViewDelegate>)inputTextViewDelegate
+                          mentionDelegate:(id<MentionTextViewDelegate>)mentionDelegate
 {
     self = [super initWithFrame:CGRectZero];
 
     _conversationStyle = conversationStyle;
     _receivedSafeAreaInsets = UIEdgeInsetsZero;
 
+    self.inputToolbarDelegate = inputToolbarDelegate;
+
     if (self) {
-        [self createContents];
+        [self createContentsWithMessageDraft:messageDraft
+                       inputTextViewDelegate:inputTextViewDelegate
+                             mentionDelegate:mentionDelegate];
     }
 
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -126,27 +136,11 @@ const CGFloat kMaxIPadTextViewHeight = 142;
                                                  name:OWSApplicationDidBecomeActiveNotification
                                                object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(isStickerSendEnabledDidChange:)
-                                                 name:StickerManager.isStickerSendEnabledDidChange
-                                               object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(keyboardFrameDidChange:)
                                                  name:UIKeyboardDidChangeFrameNotification
                                                object:nil];
 
     return self;
-}
-
-#pragma mark - Dependencies
-
-- (OWSLinkPreviewManager *)linkPreviewManager
-{
-    return SSKEnvironment.shared.linkPreviewManager;
-}
-
-- (SDSDatabaseStorage *)databaseStorage
-{
-    return SDSDatabaseStorage.shared;
 }
 
 #pragma mark -
@@ -158,7 +152,9 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     return CGSizeZero;
 }
 
-- (void)createContents
+- (void)createContentsWithMessageDraft:(nullable MessageBody *)messageDraft
+                 inputTextViewDelegate:(id<ConversationInputTextViewDelegate>)inputTextViewDelegate
+                       mentionDelegate:(id<MentionTextViewDelegate>)mentionDelegate
 {
     // The input toolbar should *always* be layed out left-to-right, even when using
     // a right-to-left language. The convention for messaging apps is for the send
@@ -206,6 +202,12 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     [self.inputTextView setCompressionResistanceLow];
     SET_SUBVIEW_ACCESSIBILITY_IDENTIFIER(self, _inputTextView);
 
+    // NOTE: Don't set inputTextViewDelegate until configuration is complete.
+    self.inputTextView.mentionDelegate = mentionDelegate;
+
+    // NOTE: Don't set inputTextViewDelegate until configuration is complete.
+    self.inputTextView.inputTextViewDelegate = inputTextViewDelegate;
+
     _textViewHeightConstraint = [self.inputTextView autoSetDimension:ALDimensionHeight toSize:kMinTextViewHeight];
 
     _cameraButton = [[UIButton alloc] init];
@@ -221,7 +223,7 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     [self.cameraButton autoSetDimensionsToSize:CGSizeMake(40, kMinToolbarItemHeight)];
     SET_SUBVIEW_ACCESSIBILITY_IDENTIFIER(self, _cameraButton);
 
-    _attachmentButton = [[UIButton alloc] init];
+    _attachmentButton = [[LottieToggleButton alloc] init];
     self.attachmentButton.accessibilityLabel
         = NSLocalizedString(@"ATTACHMENT_LABEL", @"Accessibility label for attaching photos");
     self.attachmentButton.accessibilityHint = NSLocalizedString(
@@ -229,16 +231,15 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     [self.attachmentButton addTarget:self
                               action:@selector(attachmentButtonPressed)
                     forControlEvents:UIControlEventTouchUpInside];
-    [self.attachmentButton setTemplateImageName:@"plus-24" tintColor:Theme.primaryIconColor];
-    NSString *selectedImageName = [Theme iconName:ThemeIconAttachmentButtonSelected];
-    [self.attachmentButton setImage:[UIImage imageNamed:selectedImageName] forState:UIControlStateSelected];
+    self.attachmentButton.animationName = Theme.isDarkThemeEnabled ? @"attachment_dark" : @"attachment_light";
+    self.attachmentButton.animationSize = CGSizeMake(28, 28);
     [self.attachmentButton autoSetDimensionsToSize:CGSizeMake(55, kMinToolbarItemHeight)];
     SET_SUBVIEW_ACCESSIBILITY_IDENTIFIER(self, _attachmentButton);
 
     _sendButton = [[UIButton alloc] init];
     self.sendButton.accessibilityLabel = MessageStrings.sendButton;
     [self.sendButton addTarget:self action:@selector(sendButtonPressed) forControlEvents:UIControlEventTouchUpInside];
-    [self.sendButton setTemplateImageName:@"send-solid-24" tintColor:UIColor.ows_signalBlueColor];
+    [self.sendButton setTemplateImageName:@"send-solid-24" tintColor:UIColor.ows_accentBlueColor];
     [self.sendButton autoSetDimensionsToSize:CGSizeMake(50, kMinToolbarItemHeight)];
     SET_SUBVIEW_ACCESSIBILITY_IDENTIFIER(self, _sendButton);
 
@@ -270,6 +271,10 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     [self.voiceMemoButton addGestureRecognizer:longPressGestureRecognizer];
 
     self.userInteractionEnabled = YES;
+
+    if (SSKDebugFlags.internalLogging) {
+        OWSLogInfo(@"");
+    }
 
     _quotedReplyWrapper = [UIView containerView];
     self.quotedReplyWrapper.hidden = YES;
@@ -349,11 +354,13 @@ const CGFloat kMaxIPadTextViewHeight = 142;
                                                                       cellInset:0
                                                                         spacing:suggestedStickerSpacing];
     self.suggestedStickerView.backgroundColor = Theme.conversationButtonBackgroundColor;
-    self.suggestedStickerView.contentInset = UIEdgeInsetsMake(
-        suggestedStickerSpacing, suggestedStickerSpacing, suggestedStickerSpacing, suggestedStickerSpacing);
+    const UIEdgeInsets stickerListContentInset
+        = UIEdgeInsetsMake(suggestedStickerSpacing, 24, suggestedStickerSpacing, 24);
+    self.suggestedStickerView.contentInset = stickerListContentInset;
     self.suggestedStickerView.hidden = YES;
-    [self.suggestedStickerView autoSetDimension:ALDimensionHeight
-                                         toSize:suggestedStickerSize + 2 * suggestedStickerSpacing];
+    [self.suggestedStickerView
+        autoSetDimension:ALDimensionHeight
+                  toSize:suggestedStickerSize + stickerListContentInset.bottom + stickerListContentInset.top];
 
     // "Outer" Stack
     _outerStack = [[UIStackView alloc] initWithArrangedSubviews:@[ self.suggestedStickerView, hStack ]];
@@ -364,14 +371,13 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     [self.outerStack autoPinEdgeToSuperviewSafeArea:ALEdgeBottom];
 
     // See comments on updateContentLayout:.
-    if (@available(iOS 11, *)) {
-        self.suggestedStickerView.insetsLayoutMarginsFromSafeArea = NO;
-        vStack.insetsLayoutMarginsFromSafeArea = NO;
-        vStackRoundingOffsetView.insetsLayoutMarginsFromSafeArea = NO;
-        hStack.insetsLayoutMarginsFromSafeArea = NO;
-        self.outerStack.insetsLayoutMarginsFromSafeArea = NO;
-        self.insetsLayoutMarginsFromSafeArea = NO;
-    }
+    self.suggestedStickerView.insetsLayoutMarginsFromSafeArea = NO;
+    vStack.insetsLayoutMarginsFromSafeArea = NO;
+    vStackRoundingOffsetView.insetsLayoutMarginsFromSafeArea = NO;
+    hStack.insetsLayoutMarginsFromSafeArea = NO;
+    self.outerStack.insetsLayoutMarginsFromSafeArea = NO;
+    self.insetsLayoutMarginsFromSafeArea = NO;
+
     self.suggestedStickerView.preservesSuperviewLayoutMargins = NO;
     vStack.preservesSuperviewLayoutMargins = NO;
     vStackRoundingOffsetView.preservesSuperviewLayoutMargins = NO;
@@ -384,19 +390,51 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     [self.stickerButton autoAlignAxis:ALAxisHorizontal toSameAxisOfView:self.inputTextView];
     [self.stickerButton autoPinEdge:ALEdgeTrailing toEdge:ALEdgeTrailing ofView:vStackRoundingView withOffset:-4];
 
-    // Sticker Keyboard Responder
+    [self setMessageBody:messageDraft animated:NO doLayout:NO];
 
-    StickerKeyboard *stickerKeyboard = [StickerKeyboard new];
-    _stickerKeyboard = stickerKeyboard;
-    stickerKeyboard.delegate = self;
-    [stickerKeyboard registerWithView:self];
+    self.isConfigurationComplete = YES;
+}
 
-    AttachmentKeyboard *attachmentKeyboard = [AttachmentKeyboard new];
-    _attachmentKeyboard = attachmentKeyboard;
-    attachmentKeyboard.delegate = self;
-    [attachmentKeyboard registerWithView:self];
+// This getter can be used to access stickerKeyboard without triggering lazy creation.
+- (nullable StickerKeyboard *)stickerKeyboardIfSet
+{
+    return _stickerKeyboard;
+}
 
-    [self ensureButtonVisibilityWithIsAnimated:NO doLayout:NO];
+- (StickerKeyboard *)stickerKeyboard
+{
+    // Lazy-create. This keyboard is expensive to build and can
+    // delay CVC presentation.
+    if (_stickerKeyboard == nil) {
+        StickerKeyboard *stickerKeyboard = [StickerKeyboard new];
+        _stickerKeyboard = stickerKeyboard;
+        stickerKeyboard.delegate = self;
+        [stickerKeyboard registerWithView:self];
+        return stickerKeyboard;
+    } else {
+        return _stickerKeyboard;
+    }
+}
+
+// This getter can be used to access attachmentKeyboard without triggering lazy creation.
+- (nullable AttachmentKeyboard *)attachmentKeyboardIfSet
+{
+    return _attachmentKeyboard;
+}
+
+- (AttachmentKeyboard *)attachmentKeyboard
+{
+    // Lazy-create. This keyboard is expensive to build and can
+    // delay CVC presentation.
+    if (_attachmentKeyboard == nil) {
+        AttachmentKeyboard *attachmentKeyboard = [AttachmentKeyboard new];
+        _attachmentKeyboard = attachmentKeyboard;
+        attachmentKeyboard.delegate = self;
+        [attachmentKeyboard registerWithView:self];
+        return attachmentKeyboard;
+    } else {
+        return _attachmentKeyboard;
+    }
 }
 
 - (void)updateFontSizes
@@ -404,26 +442,23 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     self.inputTextView.font = [UIFont ows_dynamicTypeBodyFont];
 }
 
-- (void)setInputTextViewDelegate:(id<ConversationInputTextViewDelegate>)value
+- (nullable MessageBody *)messageBody
 {
     OWSAssertDebug(self.inputTextView);
-    OWSAssertDebug(value);
 
-    self.inputTextView.inputTextViewDelegate = value;
+    return self.inputTextView.messageBody;
 }
 
-- (NSString *)messageText
+- (void)setMessageBody:(nullable MessageBody *)value animated:(BOOL)isAnimated
 {
-    OWSAssertDebug(self.inputTextView);
-
-    return self.inputTextView.trimmedText;
+    [self setMessageBody:value animated:isAnimated doLayout:YES];
 }
 
-- (void)setMessageText:(NSString *_Nullable)value animated:(BOOL)isAnimated
+- (void)setMessageBody:(nullable MessageBody *)value animated:(BOOL)isAnimated doLayout:(BOOL)doLayout
 {
     OWSAssertDebug(self.inputTextView);
 
-    self.inputTextView.text = value;
+    self.inputTextView.messageBody = value;
 
     // It's important that we set the textViewHeight before
     // doing any animation in `ensureButtonVisibilityWithIsAnimated`
@@ -444,11 +479,11 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     [self ensureTextViewHeight];
     [self updateInputLinkPreview];
 
-    if (value.length > 0) {
+    if (value.text.length > 0) {
         [self clearDesiredKeyboard];
     }
 
-    [self ensureButtonVisibilityWithIsAnimated:isAnimated doLayout:YES];
+    [self ensureButtonVisibilityWithIsAnimated:isAnimated doLayout:doLayout];
 }
 
 - (void)ensureTextViewHeight
@@ -463,7 +498,7 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 
 - (void)clearTextMessageAnimated:(BOOL)isAnimated
 {
-    [self setMessageText:nil animated:isAnimated];
+    [self setMessageBody:nil animated:isAnimated];
     [self.inputTextView.undoManager removeAllActions];
     self.wasLinkPreviewCancelled = NO;
 }
@@ -512,7 +547,7 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     self.quotedReplyWrapper.hidden = NO;
     self.quotedReplyWrapper.layoutMargins = UIEdgeInsetsZero;
     [self.quotedReplyWrapper addSubview:quotedMessagePreview];
-    [quotedMessagePreview ows_autoPinToSuperviewMargins];
+    [quotedMessagePreview autoPinEdgesToSuperviewMargins];
     SET_SUBVIEW_ACCESSIBILITY_IDENTIFIER(self, quotedMessagePreview);
 
     self.linkPreviewView.hasAsymmetricalRounding = !self.quotedReply;
@@ -547,9 +582,9 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     }
 
     dispatch_block_t markTooltipAsShown = ^{
-        [self.databaseStorage asyncWriteWithBlock:^(SDSAnyWriteTransaction *transaction) {
+        DatabaseStorageAsyncWrite(self.databaseStorage, ^(SDSAnyWriteTransaction *transaction) {
             [StickerManager.shared stickerTooltipWasShownWithTransaction:transaction];
-        }];
+        });
     };
 
     __block StickerPack *_Nullable stickerPack;
@@ -572,14 +607,14 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     }
 
     __weak ConversationInputToolbar *weakSelf = self;
-    UIView *tooltip = [StickerTooltip presentTooltipFromView:self
-                                          widthReferenceView:self
-                                           tailReferenceView:self.stickerButton
-                                             stickerPack:stickerPack
-                                                       block:^{
-                                                           [weakSelf removeStickerTooltip];
-                                                           [weakSelf toggleKeyboardType:KeyboardType_Sticker];
-                                                       }];
+    UIView *tooltip = [StickerTooltip presentFromView:self
+                                   widthReferenceView:self
+                                    tailReferenceView:self.stickerButton
+                                          stickerPack:stickerPack
+                                       wasTappedBlock:^{
+                                           [weakSelf removeStickerTooltip];
+                                           [weakSelf toggleKeyboardType:KeyboardType_Sticker animated:YES];
+                                       }];
     self.stickerTooltip = tooltip;
 
     const CGFloat tooltipDurationSeconds = 5.f;
@@ -600,14 +635,17 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 - (void)endEditingMessage
 {
     [self.inputTextView resignFirstResponder];
-    [self.stickerKeyboard resignFirstResponder];
-    [self.attachmentKeyboard resignFirstResponder];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-result"
+    [self.stickerKeyboardIfSet resignFirstResponder];
+    [self.attachmentKeyboardIfSet resignFirstResponder];
+#pragma clang diagnostic pop
 }
 
 - (BOOL)isInputViewFirstResponder
 {
-    return (self.inputTextView.isFirstResponder || self.stickerKeyboard.isFirstResponder
-        || self.attachmentKeyboard.isFirstResponder);
+    return (self.inputTextView.isFirstResponder || self.stickerKeyboardIfSet.isFirstResponder
+        || self.attachmentKeyboardIfSet.isFirstResponder);
 }
 
 - (void)ensureButtonVisibilityWithIsAnimated:(BOOL)isAnimated doLayout:(BOOL)doLayout
@@ -623,8 +661,11 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     // NOTE: We use untrimmedText, so that the sticker button disappears
     //       even if the user just enters whitespace.
     BOOL hasTextInput = self.inputTextView.untrimmedText.length > 0;
+
+    // We used trimmed text for determining all the other button visibility.
+    BOOL hasNonWhitespaceTextInput = self.inputTextView.trimmedText.length > 0;
     ensureViewHiddenState(self.attachmentButton, NO);
-    if (hasTextInput) {
+    if (hasNonWhitespaceTextInput) {
         ensureViewHiddenState(self.cameraButton, YES);
         ensureViewHiddenState(self.voiceMemoButton, YES);
         ensureViewHiddenState(self.sendButton, NO);
@@ -644,19 +685,19 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     }
 
     void (^updateBlock)(void) = ^{
-        BOOL hideStickerButton = hasTextInput || self.quotedReply != nil || !StickerManager.shared.isStickerSendEnabled;
+        BOOL hideStickerButton = hasTextInput || self.quotedReply != nil;
         ensureViewHiddenState(self.stickerButton, hideStickerButton);
         if (!hideStickerButton) {
             self.stickerButton.imageView.tintColor
-                = (self.desiredKeyboardType == KeyboardType_Sticker ? UIColor.ows_signalBlueColor
+                = (self.desiredKeyboardType == KeyboardType_Sticker ? UIColor.ows_accentBlueColor
                                                                     : Theme.primaryIconColor);
         }
 
-        self.attachmentButton.selected = self.desiredKeyboardType == KeyboardType_Attachment;
+        [self.attachmentButton setSelected:self.desiredKeyboardType == KeyboardType_Attachment animated:isAnimated];
 
         [self updateSuggestedStickers];
 
-        if (self.stickerButton.hidden || self.stickerKeyboard.isFirstResponder) {
+        if (self.stickerButton.hidden || self.stickerKeyboardIfSet.isFirstResponder) {
             [self removeStickerTooltip];
         }
 
@@ -696,9 +737,9 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     BOOL didChange = !UIEdgeInsetsEqualToEdgeInsets(self.receivedSafeAreaInsets, safeAreaInsets);
     BOOL hasLayout = self.layoutContraints != nil;
 
-    self.receivedSafeAreaInsets = safeAreaInsets;
-
     if (didChange || !hasLayout) {
+        self.receivedSafeAreaInsets = safeAreaInsets;
+
         [self updateContentLayout];
     }
 }
@@ -1027,7 +1068,7 @@ const CGFloat kMaxIPadTextViewHeight = 142;
         [weakSelf.inputToolbarDelegate voiceMemoGestureDidComplete];
     }];
     [sendVoiceMemoButton setTitle:MessageStrings.sendButton forState:UIControlStateNormal];
-    [sendVoiceMemoButton setTitleColor:UIColor.ows_signalBlueColor forState:UIControlStateNormal];
+    [sendVoiceMemoButton setTitleColor:UIColor.ows_accentBlueColor forState:UIControlStateNormal];
     sendVoiceMemoButton.alpha = 0;
     [self.voiceMemoContentView addSubview:sendVoiceMemoButton];
     [sendVoiceMemoButton autoPinEdgeToSuperviewMargin:ALEdgeRight withInset:10.f];
@@ -1119,6 +1160,8 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 {
     OWSAssertDebug(self.inputToolbarDelegate);
 
+    [ImpactHapticFeedback impactOccuredWithStyle:UIImpactFeedbackStyleLight];
+
     [self.inputToolbarDelegate cameraButtonPressed];
 }
 
@@ -1126,12 +1169,16 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 {
     OWSLogVerbose(@"");
 
-    [self toggleKeyboardType:KeyboardType_Attachment];
+    [ImpactHapticFeedback impactOccuredWithStyle:UIImpactFeedbackStyleLight];
+
+    [self toggleKeyboardType:KeyboardType_Attachment animated:YES];
 }
 
 - (void)stickerButtonPressed
 {
     OWSLogVerbose(@"");
+
+    [ImpactHapticFeedback impactOccuredWithStyle:UIImpactFeedbackStyleLight];
 
     __block BOOL hasInstalledStickerPacks;
     [self.databaseStorage uiReadWithBlock:^(SDSAnyReadTransaction *transaction) {
@@ -1144,17 +1191,17 @@ const CGFloat kMaxIPadTextViewHeight = 142;
         return;
     }
 
-    [self toggleKeyboardType:KeyboardType_Sticker];
+    [self toggleKeyboardType:KeyboardType_Sticker animated:YES];
 }
 
 #pragma mark - Keyboards
 
-- (void)toggleKeyboardType:(KeyboardType)keyboardType
+- (void)toggleKeyboardType:(KeyboardType)keyboardType animated:(BOOL)animated
 {
     OWSAssertDebug(self.inputToolbarDelegate);
 
     if (self.desiredKeyboardType == keyboardType) {
-        self.desiredKeyboardType = KeyboardType_System;
+        [self setDesiredKeyboardType:KeyboardType_System animated:animated];
     } else {
         // For switching to anything other than the system keyboard,
         // make sure this conversation isn't blocked before presenting it.
@@ -1162,13 +1209,13 @@ const CGFloat kMaxIPadTextViewHeight = 142;
             __weak ConversationInputToolbar *weakSelf = self;
             [self.inputToolbarDelegate showUnblockConversationUI:^(BOOL isBlocked) {
                 if (!isBlocked) {
-                    [weakSelf toggleKeyboardType:keyboardType];
+                    [weakSelf toggleKeyboardType:keyboardType animated:animated];
                 }
             }];
             return;
         }
 
-        self.desiredKeyboardType = keyboardType;
+        [self setDesiredKeyboardType:keyboardType animated:animated];
     }
 
     [self beginEditingMessage];
@@ -1176,13 +1223,18 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 
 - (void)setDesiredKeyboardType:(KeyboardType)desiredKeyboardType
 {
+    [self setDesiredKeyboardType:desiredKeyboardType animated:NO];
+}
+
+- (void)setDesiredKeyboardType:(KeyboardType)desiredKeyboardType animated:(BOOL)animated
+{
     if (_desiredKeyboardType == desiredKeyboardType) {
         return;
     }
 
     _desiredKeyboardType = desiredKeyboardType;
 
-    [self ensureButtonVisibilityWithIsAnimated:NO doLayout:YES];
+    [self ensureButtonVisibilityWithIsAnimated:animated doLayout:YES];
 
     if (self.isInputViewFirstResponder) {
         // If any keyboard is presented, make sure the correct
@@ -1218,7 +1270,7 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     OWSAssertIsOnMainThread();
 
     if (self.desiredKeyboardType != KeyboardType_Sticker) {
-        [self toggleKeyboardType:KeyboardType_Sticker];
+        [self toggleKeyboardType:KeyboardType_Sticker animated:NO];
     }
 }
 
@@ -1227,19 +1279,30 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     OWSAssertIsOnMainThread();
 
     if (self.desiredKeyboardType != KeyboardType_Attachment) {
-        [self toggleKeyboardType:KeyboardType_Attachment];
+        [self toggleKeyboardType:KeyboardType_Attachment animated:NO];
     }
 }
 
 #pragma mark - ConversationTextViewToolbarDelegate
 
+- (void)setFrame:(CGRect)frame
+{
+    BOOL didChange = frame.size.height != self.frame.size.height;
+
+    [super setFrame:frame];
+
+    if (didChange) {
+        [self.inputToolbarDelegate updateToolbarHeight];
+    }
+}
+
 - (void)setBounds:(CGRect)bounds
 {
-    CGFloat oldHeight = self.bounds.size.height;
+    BOOL didChange = bounds.size.height != self.bounds.size.height;
 
     [super setBounds:bounds];
 
-    if (oldHeight != bounds.size.height) {
+    if (didChange) {
         [self.inputToolbarDelegate updateToolbarHeight];
     }
 }
@@ -1247,6 +1310,12 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 - (void)textViewDidChange:(UITextView *)textView
 {
     OWSAssertDebug(self.inputToolbarDelegate);
+
+    if (!self.isConfigurationComplete) {
+        // Ignore change events during configuration.
+        return;
+    }
+
     [self ensureButtonVisibilityWithIsAnimated:YES doLayout:YES];
     [self updateHeightWithTextView:textView];
     [self updateInputLinkPreview];
@@ -1289,6 +1358,9 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 
 - (void)quotedReplyPreviewDidPressCancel:(QuotedReplyPreview *)preview
 {
+    if (SSKDebugFlags.internalLogging) {
+        OWSLogInfo(@"");
+    }
     self.quotedReply = nil;
 }
 
@@ -1298,9 +1370,9 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 {
     OWSAssertIsOnMainThread();
 
-    NSString *body =
-        [[self messageText] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (body.length < 1) {
+    NSString *bodyText =
+        [[self messageBody].text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (bodyText.length < 1) {
         [self clearLinkPreviewStateAndView];
         self.wasLinkPreviewCancelled = NO;
         return;
@@ -1312,22 +1384,18 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     }
 
     // Don't include link previews for oversize text messages.
-    if ([body lengthOfBytesUsingEncoding:NSUTF8StringEncoding] >= kOversizeTextMessageSizeThreshold) {
+    if ([bodyText lengthOfBytesUsingEncoding:NSUTF8StringEncoding] >= kOversizeTextMessageSizeThreshold) {
         [self clearLinkPreviewStateAndView];
         return;
     }
 
-    // It's key that we use the *raw/unstripped* text, so we can reconcile cursor position with the
-    // selectedRange.
-    NSString *_Nullable previewUrl =
-        [self.linkPreviewManager previewUrlForRawBodyText:self.inputTextView.text
-                                            selectedRange:self.inputTextView.selectedRange];
-    if (previewUrl.length < 1) {
+    NSURL *previewUrl = [self.linkPreviewManager findFirstValidUrlInSearchString:self.inputTextView.text];
+    if (!previewUrl.absoluteString.length) {
         [self clearLinkPreviewStateAndView];
         return;
     }
 
-    if (self.inputLinkPreview && [self.inputLinkPreview.previewUrl isEqualToString:previewUrl]) {
+    if ([self.inputLinkPreview.previewUrl isEqual:previewUrl]) {
         // No need to update.
         return;
     }
@@ -1336,27 +1404,27 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     self.inputLinkPreview = inputLinkPreview;
     self.inputLinkPreview.previewUrl = previewUrl;
 
-    [self ensureLinkPreviewViewWithState:[LinkPreviewLoading new]];
+    [self ensureLinkPreviewViewWithState:[[LinkPreviewLoading alloc] initWithLinkType:LinkPreviewLinkTypePreview]];
 
     __weak ConversationInputToolbar *weakSelf = self;
-    [[self.linkPreviewManager tryToBuildPreviewInfoObjcWithPreviewUrl:previewUrl]
-            .then(^(OWSLinkPreviewDraft *linkPreviewDraft) {
-                ConversationInputToolbar *_Nullable strongSelf = weakSelf;
-                if (!strongSelf) {
-                    return;
-                }
-                if (strongSelf.inputLinkPreview != inputLinkPreview) {
-                    // Obsolete callback.
-                    return;
-                }
-                inputLinkPreview.linkPreviewDraft = linkPreviewDraft;
-                LinkPreviewDraft *viewState = [[LinkPreviewDraft alloc] initWithLinkPreviewDraft:linkPreviewDraft];
-                [strongSelf ensureLinkPreviewViewWithState:viewState];
-            })
-            .catch(^(id error) {
-                // The link preview could not be loaded.
-                [weakSelf clearLinkPreviewView];
-            }) retainUntilComplete];
+    [self.linkPreviewManager fetchLinkPreviewForUrl:previewUrl]
+        .then(^(OWSLinkPreviewDraft *linkPreviewDraft) {
+            ConversationInputToolbar *_Nullable strongSelf = weakSelf;
+            if (!strongSelf) {
+                return;
+            }
+            if (strongSelf.inputLinkPreview != inputLinkPreview) {
+                // Obsolete callback.
+                return;
+            }
+            inputLinkPreview.linkPreviewDraft = linkPreviewDraft;
+            LinkPreviewDraft *viewState = [[LinkPreviewDraft alloc] initWithLinkPreviewDraft:linkPreviewDraft];
+            [strongSelf ensureLinkPreviewViewWithState:viewState];
+        })
+        .catch(^(id error) {
+            // The link preview could not be loaded.
+            [weakSelf clearLinkPreviewView];
+        });
 }
 
 - (void)ensureLinkPreviewViewWithState:(id<LinkPreviewState>)state
@@ -1372,7 +1440,8 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 
     self.linkPreviewWrapper.hidden = NO;
     [self.linkPreviewWrapper addSubview:linkPreviewView];
-    [linkPreviewView ows_autoPinToSuperviewMargins];
+    [linkPreviewView autoPinEdgesToSuperviewMargins];
+    [self.linkPreviewWrapper layoutIfNeeded];
 }
 
 - (void)clearLinkPreviewStateAndView
@@ -1476,6 +1545,7 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 {
     if (self.suggestedStickerInfos.count < 1) {
         self.suggestedStickerView.hidden = YES;
+        [self layoutIfNeeded];
         return;
     }
     __weak __typeof(self) weakSelf = self;
@@ -1490,8 +1560,10 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     }
     self.suggestedStickerView.items = items;
     self.suggestedStickerView.hidden = NO;
+    [self layoutIfNeeded];
     if (shouldReset) {
-        self.suggestedStickerView.contentOffset = CGPointZero;
+        self.suggestedStickerView.contentOffset
+            = CGPointMake(-self.suggestedStickerView.contentInset.left, -self.suggestedStickerView.contentInset.top);
     }
 }
 
@@ -1545,8 +1617,12 @@ const CGFloat kMaxIPadTextViewHeight = 142;
         self.isMeasuringKeyboardHeight = YES;
 
         [UIView setAnimationsEnabled:NO];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunused-result"
         [self.inputTextView becomeFirstResponder];
         [self.inputTextView resignFirstResponder];
+#pragma clang diagnostic pop
+        [self.inputTextView reloadMentionState];
         [UIView setAnimationsEnabled:YES];
     }
 }
@@ -1556,13 +1632,6 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     OWSAssertIsOnMainThread();
 
     [self restoreDesiredKeyboardIfNecessary];
-}
-
-- (void)isStickerSendEnabledDidChange:(NSNotification *)notification
-{
-    OWSAssertIsOnMainThread();
-
-    [self ensureButtonVisibilityWithIsAnimated:YES doLayout:YES];
 }
 
 - (void)ensureFirstResponderState
@@ -1611,9 +1680,9 @@ const CGFloat kMaxIPadTextViewHeight = 142;
     [self.inputToolbarDelegate galleryButtonPressed];
 }
 
-- (void)didTapCameraWithPhotoCapture:(nullable PhotoCapture *)photoCapture
+- (void)didTapCamera
 {
-    [self.inputToolbarDelegate cameraButtonPressedWithPhotoCapture:photoCapture];
+    [self.inputToolbarDelegate cameraButtonPressed];
 }
 
 - (void)didTapGif
@@ -1634,6 +1703,13 @@ const CGFloat kMaxIPadTextViewHeight = 142;
 - (void)didTapLocation
 {
     [self.inputToolbarDelegate locationButtonPressed];
+}
+
+- (void)updateConversationStyle:(ConversationStyle *)conversationStyle
+{
+    OWSAssertIsOnMainThread();
+
+    _conversationStyle = conversationStyle;
 }
 
 @end

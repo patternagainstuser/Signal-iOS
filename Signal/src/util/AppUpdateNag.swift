@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -10,7 +10,7 @@ class AppUpdateNag: NSObject {
 
     // MARK: Public
 
-    @objc(sharedInstance)
+    @objc(shared)
     public static let shared: AppUpdateNag = {
         let versionService = AppStoreVersionService()
         let nagManager = AppUpdateNag(versionService: versionService)
@@ -47,7 +47,7 @@ class AppUpdateNag: NSObject {
             self.showUpdateNagIfEnoughTimeHasPassed(appStoreRecord: appStoreRecord)
         }.catch { error in
             Logger.warn("failed with error: \(error)")
-        }.retainUntilComplete()
+        }
     }
 
     // MARK: - Internal
@@ -162,13 +162,13 @@ class AppUpdateNag: NSObject {
 
         Logger.debug("")
 
-        UIApplication.shared.openURL(appStoreURL)
+        UIApplication.shared.open(appStoreURL, options: [:])
     }
 
     // MARK: Storage
 
     var firstHeardOfNewVersionDate: Date? {
-        return self.databaseStorage.readReturningResult { transaction in
+        return self.databaseStorage.read { transaction in
             return self.keyValueStore.getDate(AppUpdateNag.kFirstHeardOfNewVersionDateKey, transaction: transaction)
         }
     }
@@ -186,7 +186,7 @@ class AppUpdateNag: NSObject {
     }
 
     var lastNagDate: Date? {
-        return self.databaseStorage.readReturningResult { transaction in
+        return self.databaseStorage.read { transaction in
             return self.keyValueStore.getDate(AppUpdateNag.kLastNagDateKey, transaction: transaction)
         }
     }
@@ -224,7 +224,11 @@ class AppStoreVersionService: NSObject {
 
         let (promise, resolver) = Promise<AppStoreRecord>.pending()
 
-        let task = URLSession.ephemeral.dataTask(with: lookupURL) { (data, _, error) in
+        let task = URLSession.ephemeral.dataTask(with: lookupURL) { (data, _, networkError) in
+            if let networkError = networkError {
+                return resolver.reject(networkError)
+            }
+
             guard let data = data else {
                 Logger.warn("data was unexpectedly nil")
                 resolver.reject(OWSErrorMakeUnableToProcessServerResponseError())

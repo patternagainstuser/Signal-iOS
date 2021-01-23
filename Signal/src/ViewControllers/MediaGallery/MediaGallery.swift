@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -222,9 +222,8 @@ class MediaGallery {
 
     // MARK: - Dependencies
 
-    // POST GRDB TODO - Remove
-    private var primaryStorage: OWSPrimaryStorage? {
-        return SSKEnvironment.shared.primaryStorage
+    private var audioPlayer: CVAudioPlayer {
+        return AppEnvironment.shared.audioPlayer
     }
 
     // MARK: -
@@ -248,82 +247,19 @@ class MediaGallery {
     @objc
     init(thread: TSThread) {
         self.mediaGalleryFinder = AnyMediaGalleryFinder(thread: thread)
+
         setupDatabaseObservation()
     }
 
     func setupDatabaseObservation() {
-        if StorageCoordinator.dataStoreForUI == .grdb {
-            guard let mediaGalleryDatabaseObserver = databaseStorage.grdbStorage.mediaGalleryDatabaseObserver else {
-                owsFailDebug("observer was unexpectedly nil")
-                return
-            }
-            mediaGalleryDatabaseObserver.appendSnapshotDelegate(self)
-        } else {
-            guard let primaryStorage = primaryStorage else {
-                owsFail("Missing primaryStorage.")
-            }
-
-            NotificationCenter.default.addObserver(self,
-                                                   selector: #selector(uiDatabaseDidUpdate),
-                                                   name: .OWSUIDatabaseConnectionDidUpdate,
-                                                   object: primaryStorage.dbNotificationObject)
-        }
-    }
-
-    // MARK: - Yap Database Notifications
-
-    @objc
-    func uiDatabaseDidUpdate(notification: Notification) {
-        guard let primaryStorage = primaryStorage else {
-            owsFail("Missing primaryStorage.")
-        }
-
-        guard let notifications = notification.userInfo?[OWSUIDatabaseConnectionNotificationsKey] as? [Notification] else {
-            owsFailDebug("notifications was unexpectedly nil")
+        guard StorageCoordinator.dataStoreForUI == .grdb else {
+            owsFailDebug("Invalid data store.")
             return
         }
-
-        guard mediaGalleryFinder.yapAdapter.hasMediaChanges(in: notifications, dbConnection: primaryStorage.uiDatabaseConnection) else {
-            return
-        }
-
-        let rowChanges = extractRowChanges(notifications: notifications)
-        assert(rowChanges.count > 0)
-
-        process(rowChanges: rowChanges)
+        databaseStorage.appendUIDatabaseSnapshotDelegate(self)
     }
 
-    func extractRowChanges(notifications: [Notification]) -> [YapDatabaseViewRowChange] {
-        return notifications.flatMap { notification -> [YapDatabaseViewRowChange] in
-            guard let userInfo = notification.userInfo else {
-                owsFailDebug("userInfo was unexpectedly nil")
-                return []
-            }
-
-            guard let extensionChanges = userInfo["extensions"] as? [AnyHashable: Any] else {
-                owsFailDebug("extensionChanges was unexpectedly nil")
-                return []
-            }
-
-            guard let galleryData = extensionChanges[YAPDBMediaGalleryFinder.databaseExtensionName()] as? [AnyHashable: Any] else {
-                owsFailDebug("galleryData was unexpectedly nil")
-                return []
-            }
-
-            guard let galleryChanges = galleryData["changes"] as? [Any] else {
-                owsFailDebug("gallerlyChanges was unexpectedly nil")
-                return []
-            }
-
-            return galleryChanges.compactMap { $0 as? YapDatabaseViewRowChange }
-        }
-    }
-
-    func process(rowChanges: [YapDatabaseViewRowChange]) {
-        let deletedIds = rowChanges.filter { $0.type == .delete }.map { $0.collectionKey.key }
-
-        process(deletedAttachmentIds: deletedIds)
-    }
+    // MARK: - 
 
     func process(deletedAttachmentIds: [String]) {
         let deletedItems: [MediaGalleryItem] = deletedAttachmentIds.compactMap { attachmentId in
@@ -457,7 +393,7 @@ class MediaGallery {
                     // For perf we only want to fetch a substantially full batch...
                     let isSubstantialRequest = unfetchedSet.count > (requestSet.count / 2)
                     // ...but we always fulfill even small requests if we're getting just the tail end of a gallery.
-                    let isFetchingEdgeOfGallery = (self.fetchedIndexSet.count - unfetchedSet.count) < requestSet.count
+                    let isFetchingEdge = unfetchedSet.contains(0) || unfetchedSet.contains(Int(mediaCount - 1))
 
                     // If we're trying to load a complete album, and some of that album is unfetched...
                     let isLoadingAlbumRemainder: Bool
@@ -467,7 +403,7 @@ class MediaGallery {
                         isLoadingAlbumRemainder = false
                     }
 
-                    guard isSubstantialRequest || isFetchingEdgeOfGallery || isLoadingAlbumRemainder else {
+                    guard isSubstantialRequest || isFetchingEdge || isLoadingAlbumRemainder else {
                         Logger.debug("ignoring small fetch request: \(unfetchedSet.count)")
                         return
                     }
@@ -574,8 +510,7 @@ class MediaGallery {
     }
 
     func ensureLoadedForMostRecentTileView() -> MediaGalleryItem? {
-        guard let mostRecentItem: MediaGalleryItem = (databaseStorage.uiReadReturningResult { transaction in
-            // POST GRDB - fetch messages w/ attachments rather than separate query
+        guard let mostRecentItem: MediaGalleryItem = (databaseStorage.uiRead { transaction in
             guard let attachment = self.mediaGalleryFinder.mostRecentMediaAttachment(transaction: transaction)  else {
                 return nil
             }
@@ -743,30 +678,32 @@ class MediaGallery {
     }
 
     var galleryItemCount: Int {
-        let count: UInt = databaseStorage.uiReadReturningResult { transaction in
+        let count: UInt = databaseStorage.uiRead { transaction in
             return self.mediaGalleryFinder.mediaCount(transaction: transaction)
         }
         return Int(count) - deletedAttachments.count
     }
 }
 
-extension MediaGallery: MediaGalleryDatabaseSnapshotDelegate {
-    func mediaGalleryDatabaseSnapshotWillUpdate() {
+extension MediaGallery: UIDatabaseSnapshotDelegate {
+
+    func uiDatabaseSnapshotWillUpdate() {
         // no-op
     }
 
-    func mediaGalleryDatabaseSnapshotDidUpdate(deletedAttachmentIds: Set<String>) {
+    func uiDatabaseSnapshotDidUpdate(databaseChanges: UIDatabaseChanges) {
+        let deletedAttachmentIds = databaseChanges.attachmentDeletedUniqueIds
         guard deletedAttachmentIds.count > 0 else {
             return
         }
         process(deletedAttachmentIds: Array(deletedAttachmentIds))
     }
 
-    func mediaGalleryDatabaseSnapshotDidUpdateExternally() {
+    func uiDatabaseSnapshotDidUpdateExternally() {
         // no-op
     }
 
-    func mediaGalleryDatabaseSnapshotDidReset() {
+    func uiDatabaseSnapshotDidReset() {
         // no-op
     }
 }

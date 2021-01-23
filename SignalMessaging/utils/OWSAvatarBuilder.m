@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSAvatarBuilder.h"
@@ -15,15 +15,36 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+const NSUInteger kSmallAvatarSize = 40;
 const NSUInteger kStandardAvatarSize = 48;
-const NSUInteger kLargeAvatarSize = 68;
+const NSUInteger kMediumAvatarSize = 68;
+const NSUInteger kLargeAvatarSize = 96;
 
 typedef void (^OWSAvatarDrawBlock)(CGContextRef context);
 
 @implementation OWSAvatarBuilder
 
+#pragma mark - Dependencies
+
++ (SDSDatabaseStorage *)databaseStorage
+{
+    return SDSDatabaseStorage.shared;
+}
+
+#pragma mark -
+
++ (nullable UIImage *)buildImageForThread:(TSThread *)thread diameter:(NSUInteger)diameter
+{
+    __block UIImage *_Nullable result;
+    [self.databaseStorage uiReadWithBlock:^(SDSAnyReadTransaction *transaction) {
+        result = [self buildImageForThread:thread diameter:diameter transaction:transaction];
+    }];
+    return result;
+}
+
 + (nullable UIImage *)buildImageForThread:(TSThread *)thread
                                  diameter:(NSUInteger)diameter
+                              transaction:(SDSAnyReadTransaction *)transaction
 {
     OWSAssertDebug(thread);
 
@@ -33,13 +54,14 @@ typedef void (^OWSAvatarDrawBlock)(CGContextRef context);
         ConversationColorName colorName = thread.conversationColorName;
         avatarBuilder = [[OWSContactAvatarBuilder alloc] initWithAddress:contactThread.contactAddress
                                                                colorName:colorName
-                                                                diameter:diameter];
+                                                                diameter:diameter
+                                                             transaction:transaction];
     } else if ([thread isKindOfClass:[TSGroupThread class]]) {
         avatarBuilder = [[OWSGroupAvatarBuilder alloc] initWithThread:(TSGroupThread *)thread diameter:diameter];
     } else {
         OWSLogError(@"called with unsupported thread: %@", thread);
     }
-    return [avatarBuilder build];
+    return [avatarBuilder buildWithTransaction:transaction];
 }
 
 + (nullable UIImage *)buildRandomAvatarWithDiameter:(NSUInteger)diameter
@@ -170,6 +192,7 @@ typedef void (^OWSAvatarDrawBlock)(CGContextRef context);
             (id)[UIColor colorWithWhite:0.f alpha:0.15f].CGColor,
         ],
         gradientLocations);
+    CFRelease(colorspace);
     if (!gradient) {
         return nil;
     }
@@ -189,7 +212,7 @@ typedef void (^OWSAvatarDrawBlock)(CGContextRef context);
     UIImage *_Nullable image = UIGraphicsGetImageFromCurrentImageContext();
 
     UIGraphicsEndImageContext();
-
+    
     return image;
 }
 
@@ -282,7 +305,23 @@ typedef void (^OWSAvatarDrawBlock)(CGContextRef context);
     }
 }
 
+- (nullable UIImage *)buildWithTransaction:(SDSAnyReadTransaction *)transaction
+{
+    UIImage *_Nullable savedImage = [self buildSavedImageWithTransaction:transaction];
+    if (savedImage) {
+        return savedImage;
+    } else {
+        return [self buildDefaultImage];
+    }
+}
+
 - (nullable UIImage *)buildSavedImage
+{
+    OWSAbstractMethod();
+    return nil;
+}
+
+- (nullable UIImage *)buildSavedImageWithTransaction:(SDSAnyReadTransaction *)transaction
 {
     OWSAbstractMethod();
     return nil;

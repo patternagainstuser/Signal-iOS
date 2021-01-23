@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 #import <Mantle/MTLModel.h>
@@ -106,10 +106,13 @@ NSString *NSStringForContactAddressType(OWSContactAddressType value);
 @property (nonatomic, nullable) NSString *nameSuffix;
 @property (nonatomic, nullable) NSString *namePrefix;
 @property (nonatomic, nullable) NSString *middleName;
+@property (nonatomic, nullable) NSString *nickname;
 
 @property (nonatomic, nullable) NSString *organizationName;
 
 @property (nonatomic) NSString *displayName;
+
+@property (nonatomic, readonly) NSPersonNameComponents *components;
 
 // Returns true if any of the name parts (which doesn't include
 // organization name) is non-empty.
@@ -136,8 +139,6 @@ NSString *NSStringForContactAddressType(OWSContactAddressType value);
 // "Profile" avatars should _not_ be saved to device contacts.
 @property (nonatomic, readonly) BOOL isProfileAvatar;
 
-- (instancetype)init NS_UNAVAILABLE;
-
 - (void)normalize;
 
 - (BOOL)ows_isValid;
@@ -152,10 +153,10 @@ NSString *NSStringForContactAddressType(OWSContactAddressType value);
 
 #pragma mark - Phone Numbers and Recipient IDs
 
-- (NSArray<NSString *> *)systemContactsWithSignalAccountPhoneNumbers:(id<ContactsManagerProtocol>)contactsManager
-    NS_SWIFT_NAME(systemContactsWithSignalAccountPhoneNumbers(_:));
-- (NSArray<NSString *> *)systemContactPhoneNumbers:(id<ContactsManagerProtocol>)contactsManager
-    NS_SWIFT_NAME(systemContactPhoneNumbers(_:));
+- (NSArray<NSString *> *)systemContactsWithSignalAccountPhoneNumbers;
+- (NSArray<NSString *> *)systemContactsWithSignalAccountPhoneNumbersWithTransaction:
+    (SDSAnyReadTransaction *)transaction;
+- (NSArray<NSString *> *)systemContactPhoneNumbers;
 - (NSArray<NSString *> *)e164PhoneNumbers NS_SWIFT_NAME(e164PhoneNumbers());
 
 @end

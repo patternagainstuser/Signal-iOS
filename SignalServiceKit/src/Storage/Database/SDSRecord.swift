@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -34,33 +34,38 @@ public extension SDSRecord {
     // doesn't match the database contents.
     func sdsSave(saveMode: SDSSaveMode,
                  transaction: GRDBWriteTransaction) {
+        // GRDB TODO: the record has an id property, but we can't use it here
+        //            until we modify the upsert logic.
+        //            grdbIdByUniqueId() verifies that the model hasn't been
+        //            deleted from the db.
+        if let grdbId: Int64 = grdbIdByUniqueId(transaction: transaction) {
+            if saveMode == .insert {
+                owsFailDebug("Could not insert existing record.")
+            }
+            sdsUpdate(grdbId: grdbId, transaction: transaction)
+        } else {
+            if saveMode == .update {
+                owsFailDebug("Could not update missing record.")
+            }
+            sdsInsert(transaction: transaction)
+        }
+    }
+
+    private func sdsUpdate(grdbId: Int64, transaction: GRDBWriteTransaction) {
         do {
-            // GRDB TODO: the record has an id property, but we can't use it here
-            //            until we modify the upsert logic.
-            //            grdbIdByUniqueId() verifies that the model hasn't been
-            //            deleted from the db.
-            if let grdbId: Int64 = grdbIdByUniqueId(transaction: transaction) {
-
-                if saveMode == .insert {
-                    owsFailDebug("Could not insert existing record.")
-                }
-
-                var recordCopy = self
-                recordCopy.id = grdbId
-                try recordCopy.update(transaction.database)
-            } else {
-                if saveMode == .update {
-                    owsFailDebug("Could not update missing record.")
-                }
-
-                try self.insert(transaction.database)
-            }
+            var recordCopy = self
+            recordCopy.id = grdbId
+            try recordCopy.update(transaction.database)
         } catch {
-            if let databaseError = error as? DatabaseError {
-                Logger.error("resultCode: \(databaseError.resultCode), extendedResultCode: \(databaseError.extendedResultCode), message: \(databaseError.message), ")
-            }
-            // TODO:
-            owsFail("Write failed: \(error)")
+            owsFail("Update failed: \(error.grdbErrorForLogging)")
+        }
+    }
+
+    private func sdsInsert(transaction: GRDBWriteTransaction) {
+        do {
+            try self.insert(transaction.database)
+        } catch {
+            owsFail("Insert failed: \(error.grdbErrorForLogging)")
         }
     }
 
@@ -78,18 +83,31 @@ public extension SDSRecord {
             statement.unsafeSetArguments(arguments)
             try statement.execute()
         } catch {
-            if let databaseError = error as? DatabaseError {
-                Logger.error("resultCode: \(databaseError.resultCode), extendedResultCode: \(databaseError.extendedResultCode), message: \(databaseError.message), ")
-            }
-            // TODO:
-            owsFail("Write failed: \(error)")
+            owsFail("Write failed: \(error.grdbErrorForLogging)")
         }
     }
 }
 
+// MARK: -
+
 fileprivate extension SDSRecord {
 
-    func grdbIdByUniqueId(transaction: GRDBWriteTransaction) -> Int64? {
+    func grdbIdByUniqueId(transaction: GRDBReadTransaction) -> Int64? {
+        BaseModel.grdbIdByUniqueId(tableMetadata: tableMetadata,
+                                   uniqueIdColumnName: uniqueIdColumnName,
+                                   uniqueIdColumnValue: uniqueIdColumnValue,
+                                   transaction: transaction)
+    }
+}
+
+// MARK: -
+
+extension BaseModel {
+
+    static func grdbIdByUniqueId(tableMetadata: SDSTableMetadata,
+                                 uniqueIdColumnName: String,
+                                 uniqueIdColumnValue: String,
+                                 transaction: GRDBReadTransaction) -> Int64? {
         do {
             let tableName = tableMetadata.tableName
             let sql = "SELECT id FROM \(tableName.quotedDatabaseIdentifier) WHERE \(uniqueIdColumnName.quotedDatabaseIdentifier)=?"

@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -91,7 +91,7 @@ open class CustomKeyboard: UIInputView {
     public func updateSystemKeyboardHeight(_ height: CGFloat) {
         // Only respect this height if it's reasonable, we don't want
         // to have a tiny keyboard.
-        guard height > 100 else { return }
+        guard height > 170 else { return }
         cachedSystemKeyboardHeight.current = height
         resizeToSystemKeyboard()
     }
@@ -132,11 +132,15 @@ private class CustomKeyboardResponder: UITextView {
     init(customKeyboard: CustomKeyboard) {
         self.customKeyboard = customKeyboard
         super.init(frame: .zero, textContainer: nil)
-        inputView = customKeyboard
         autocorrectionType = .no
         keyboardAppearance = Theme.keyboardAppearance
         inputAssistantItem.leadingBarButtonGroups = []
         inputAssistantItem.trailingBarButtonGroups = []
+    }
+
+    override var inputView: UIView? {
+        get { customKeyboard }
+        set {}
     }
 
     required init?(coder aDecoder: NSCoder) {

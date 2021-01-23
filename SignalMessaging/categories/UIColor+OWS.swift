@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2021 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -55,7 +55,12 @@ public extension UIColor {
 
     @objc(ows_signalBlueColor)
     class var ows_signalBlue: UIColor {
-        return UIColor(rgbHex: 0x2090EA)
+        return UIColor(rgbHex: 0x3A76F0)
+    }
+
+    @objc(ows_signalBlueDarkColor)
+    class var ows_signalBlueDark: UIColor {
+        return UIColor(rgbHex: 0x1851B4)
     }
 
     // MARK: Accent Colors
@@ -63,7 +68,19 @@ public extension UIColor {
     /// Nav Bar, Primary Buttons
     @objc(ows_accentBlueColor)
     class var ows_accentBlue: UIColor {
-        return self.ows_signalBlue
+        // Ultramarine UI
+        return UIColor(rgbHex: 0x2C6BED)
+    }
+
+    @objc(ows_accentBlueDarkColor)
+    class var ows_accentBlueDark: UIColor {
+        // Ultramarine UI Light
+        return UIColor(rgbHex: 0x6191F3)
+    }
+
+    @objc(ows_accentBlueTintColor)
+    class var ows_accentBlueTint: UIColor {
+        return UIColor(rgbHex: 0xB0C8F9)
     }
 
     /// Making calls, success states
@@ -111,9 +128,19 @@ public extension UIColor {
         return UIColor(rgbHex: 0xD4D4D4)
     }
 
+    @objc(ows_gray20Color)
+    class var ows_gray20: UIColor {
+        return UIColor(rgbHex: 0xCCCCCC)
+    }
+
     @objc(ows_gray25Color)
     class var ows_gray25: UIColor {
         return UIColor(rgbHex: 0xB9B9B9)
+    }
+
+    @objc(ows_gray40Color)
+    class var ows_gray40: UIColor {
+        return UIColor(rgbHex: 0x999999)
     }
 
     @objc(ows_gray45Color)
@@ -163,9 +190,24 @@ public extension UIColor {
 
     // MARK: Masks
 
+    @objc(ows_whiteAlpha00Color)
+    class var ows_whiteAlpha00: UIColor {
+        return UIColor(white: 1.0, alpha: 0)
+    }
+
     @objc(ows_whiteAlpha20Color)
     class var ows_whiteAlpha20: UIColor {
         return UIColor(white: 1.0, alpha: 0.2)
+    }
+
+    @objc(ows_whiteAlpha30Color)
+    class var ows_whiteAlpha30: UIColor {
+        return UIColor(white: 1.0, alpha: 0.3)
+    }
+
+    @objc(ows_whiteAlpha40Color)
+    class var ows_whiteAlpha40: UIColor {
+        return UIColor(white: 1.0, alpha: 0.4)
     }
 
     @objc(ows_whiteAlpha60Color)
@@ -203,13 +245,12 @@ public extension UIColor {
         return UIColor(white: 0, alpha: 0.60)
     }
 
-    // MARK: UI Colors
-
-    // FIXME OFF-PALETTE
-    @objc(ows_fadedBlueColor)
-    class var ows_fadedBlue: UIColor {
-        return UIColor(rgbHex: 0xB6DEF4)
+    @objc(ows_blackAlpha80Color)
+    class var ows_blackAlpha80: UIColor {
+        return UIColor(white: 0, alpha: 0.80)
     }
+
+    // MARK: UI Colors
 
     // FIXME OFF-PALETTE
     @objc(ows_reminderYellowColor)

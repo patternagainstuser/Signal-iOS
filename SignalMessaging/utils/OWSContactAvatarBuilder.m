@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2021 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSContactAvatarBuilder.h"
@@ -16,7 +16,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface OWSContactAvatarBuilder ()
 
 @property (nonatomic, readonly, nullable) SignalServiceAddress *address;
-@property (nonatomic, readonly) NSString *contactName;
+@property (nonatomic, readonly, nullable) NSPersonNameComponents *contactNameComponents;
 @property (nonatomic, readonly) ConversationColorName colorName;
 @property (nonatomic, readonly) NSUInteger diameter;
 
@@ -24,10 +24,22 @@ NS_ASSUME_NONNULL_BEGIN
 
 @implementation OWSContactAvatarBuilder
 
+#pragma mark - Dependencies
+
+- (OWSContactsManager *)contactsManager
+{
+    return (OWSContactsManager *)SSKEnvironment.shared.contactsManager;
+}
+
+- (SDSDatabaseStorage *)databaseStorage
+{
+    return SDSDatabaseStorage.shared;
+}
+
 #pragma mark - Initializers
 
 - (instancetype)initWithAddress:(nullable SignalServiceAddress *)address
-                           name:(NSString *)name
+                 nameComponents:(nullable NSPersonNameComponents *)nameComponents
                       colorName:(ConversationColorName)colorName
                        diameter:(NSUInteger)diameter
 {
@@ -39,7 +51,7 @@ NS_ASSUME_NONNULL_BEGIN
     OWSAssertDebug(colorName.length > 0);
 
     _address = address;
-    _contactName = name;
+    _contactNameComponents = nameComponents;
     _colorName = colorName;
     _diameter = diameter;
 
@@ -50,30 +62,31 @@ NS_ASSUME_NONNULL_BEGIN
                       colorName:(ConversationColorName)colorName
                        diameter:(NSUInteger)diameter
 {
-
-
-    // Name for avatar initials.
-    NSString *_Nullable name;
-
-    if (SSKFeatureFlags.profileDisplayChanges) {
-        name = [OWSContactAvatarBuilder.contactsManager displayNameForAddress:address];
-    } else {
-        name = [OWSContactAvatarBuilder.contactsManager contactOrProfileNameForAddress:address];
-
-        if (name.length == 0) {
-            name = address.stringForDisplay;
-        }
-    }
-
-    return [self initWithAddress:address name:name colorName:colorName diameter:diameter];
+    // Components for avatar initials.
+    __block NSPersonNameComponents *_Nullable nameComponents;
+    [self.databaseStorage uiReadWithBlock:^(SDSAnyReadTransaction *transaction) {
+        nameComponents = [self.contactsManager nameComponentsForAddress:address transaction:transaction];
+    }];
+    return [self initWithAddress:address nameComponents:nameComponents colorName:colorName diameter:diameter];
 }
 
-- (instancetype)initWithNonSignalName:(NSString *)nonSignalName
-                            colorSeed:(NSString *)colorSeed
-                             diameter:(NSUInteger)diameter
+- (instancetype)initWithAddress:(SignalServiceAddress *)address
+                      colorName:(ConversationColorName)colorName
+                       diameter:(NSUInteger)diameter
+                    transaction:(SDSAnyReadTransaction *)transaction
+{
+    // Components for avatar initials.
+    NSPersonNameComponents *_Nullable nameComponents = [self.contactsManager nameComponentsForAddress:address
+                                                                                          transaction:transaction];
+    return [self initWithAddress:address nameComponents:nameComponents colorName:colorName diameter:diameter];
+}
+
+- (instancetype)initWithNonSignalNameComponents:(NSPersonNameComponents *)nonSignalNameComponents
+                                      colorSeed:(NSString *)colorSeed
+                                       diameter:(NSUInteger)diameter
 {
     ConversationColorName colorName = [TSThread stableColorNameForNewConversationWithString:colorSeed];
-    return [self initWithAddress:nil name:nonSignalName colorName:colorName diameter:diameter];
+    return [self initWithAddress:nil nameComponents:nonSignalNameComponents colorName:colorName diameter:diameter];
 }
 
 - (instancetype)initForLocalUserWithDiameter:(NSUInteger)diameter
@@ -81,9 +94,37 @@ NS_ASSUME_NONNULL_BEGIN
     OWSAssertDebug(diameter > 0);
     OWSAssertDebug(TSAccountManager.localAddress.isValid);
 
+    __block OWSContactAvatarBuilder *instance;
+    [self.databaseStorage uiReadWithBlock:^(SDSAnyReadTransaction *transaction) {
+        instance = [self initWithAddress:TSAccountManager.localAddress
+                               colorName:ConversationColorNameDefault
+                                diameter:diameter
+                             transaction:transaction];
+    }];
+    return instance;
+}
+
+- (instancetype)initForLocalUserWithDiameter:(NSUInteger)diameter transaction:(SDSAnyReadTransaction *)transaction
+{
+    OWSAssertDebug(diameter > 0);
+    OWSAssertDebug(TSAccountManager.localAddress.isValid);
+
     return [self initWithAddress:TSAccountManager.localAddress
-                       colorName:kConversationColorName_Default
-                        diameter:diameter];
+                       colorName:ConversationColorNameDefault
+                        diameter:diameter
+                     transaction:transaction];
+}
+
++ (nullable UIImage *)buildImageForAddress:(SignalServiceAddress *)address
+                                  diameter:(NSUInteger)diameter
+                               transaction:(SDSAnyReadTransaction *)transaction
+{
+    ConversationColorName color = [self.contactsManager conversationColorNameForAddress:address
+                                                                            transaction:transaction];
+    return [[[self alloc] initWithAddress:address
+                                colorName:color
+                                 diameter:diameter
+                              transaction:transaction] build];
 }
 
 #pragma mark - Dependencies
@@ -102,27 +143,46 @@ NS_ASSUME_NONNULL_BEGIN
     }
 
     if (self.address.isLocalAddress) {
-        NSString *noteToSelfCacheKey = [NSString stringWithFormat:@"%@:note-to-self", self.cacheKey];
-        UIImage *_Nullable cachedAvatar =
-            [OWSContactAvatarBuilder.contactsManager.avatarCache imageForKey:noteToSelfCacheKey
-                                                                    diameter:(CGFloat)self.diameter];
-        if (cachedAvatar) {
-            return cachedAvatar;
-        }
-
-        UIImage *image = [self noteToSelfImageWithConversationColorName:self.colorName];
-        if (!image) {
-            OWSFailDebug(@"Could not generate avatar.");
-            return nil;
-        }
-
-        [OWSContactAvatarBuilder.contactsManager.avatarCache setImage:image
-                                                               forKey:noteToSelfCacheKey
-                                                             diameter:self.diameter];
-        return image;
+        return self.buildImageForLocalUser;
     }
 
     return [OWSContactAvatarBuilder.contactsManager imageForAddressWithSneakyTransaction:self.address];
+}
+
+- (nullable UIImage *)buildSavedImageWithTransaction:(SDSAnyReadTransaction *)transaction
+{
+    if (!self.address.isValid) {
+        return nil;
+    }
+
+    if (self.address.isLocalAddress) {
+        return self.buildImageForLocalUser;
+    }
+
+    return [OWSContactAvatarBuilder.contactsManager imageForAddress:self.address transaction:transaction];
+}
+
+- (nullable UIImage *)buildImageForLocalUser
+{
+    OWSCAssertDebug(self.address.isLocalAddress);
+    NSString *noteToSelfCacheKey = [NSString stringWithFormat:@"%@:note-to-self", self.cacheKey];
+    UIImage *_Nullable cachedAvatar =
+        [OWSContactAvatarBuilder.contactsManager getImageFromAvatarCacheWithKey:noteToSelfCacheKey
+                                                                       diameter:(CGFloat)self.diameter];
+    if (cachedAvatar) {
+        return cachedAvatar;
+    }
+
+    UIImage *image = [self noteToSelfImageWithConversationColorName:self.colorName diameter:(CGFloat)self.diameter];
+    if (!image) {
+        OWSFailDebug(@"Could not generate avatar.");
+        return nil;
+    }
+
+    [OWSContactAvatarBuilder.contactsManager setImageForAvatarCache:image
+                                                             forKey:noteToSelfCacheKey
+                                                           diameter:self.diameter];
+    return image;
 }
 
 - (id)cacheKey
@@ -130,44 +190,44 @@ NS_ASSUME_NONNULL_BEGIN
     if (self.address.isValid) {
         return [NSString stringWithFormat:@"%@-%d", self.address.stringForDisplay, Theme.isDarkThemeEnabled];
     } else {
-        return [NSString stringWithFormat:@"%@-%d", self.contactName, Theme.isDarkThemeEnabled];
+        return [NSString stringWithFormat:@"%@-%d", self.contactInitials, Theme.isDarkThemeEnabled];
     }
+}
+
+- (nullable NSString *)contactInitials
+{
+    if (self.contactNameComponents == nil) {
+        return nil;
+    }
+
+    NSString *_Nullable abbreviation = [NSPersonNameComponentsFormatter
+        localizedStringFromPersonNameComponents:self.contactNameComponents
+                                          style:NSPersonNameComponentsFormatterStyleAbbreviated
+                                        options:0];
+    if (abbreviation.length > 0 && abbreviation.length < 4) {
+        return abbreviation;
+    }
+
+    // Some languages, such as Arabic, don't natively support abbreviations or
+    // have default abbreviations that are too long. In this case, we will not
+    // show an abbreviation. This matches the behavior of iMessage.
+    return nil;
 }
 
 - (nullable UIImage *)buildDefaultImage
 {
     UIImage *_Nullable cachedAvatar =
-        [OWSContactAvatarBuilder.contactsManager.avatarCache imageForKey:self.cacheKey diameter:(CGFloat)self.diameter];
+        [OWSContactAvatarBuilder.contactsManager getImageFromAvatarCacheWithKey:self.cacheKey
+                                                                       diameter:(CGFloat)self.diameter];
     if (cachedAvatar) {
         return cachedAvatar;
-    }
-
-    NSMutableString *initials = [NSMutableString string];
-
-    NSRange rangeOfLetters = [self.contactName rangeOfCharacterFromSet:[NSCharacterSet letterCharacterSet]];
-    if (rangeOfLetters.location != NSNotFound) {
-        // Contact name contains letters, so it's probably not just a phone number.
-        // Make an image from the contact's initials
-        NSCharacterSet *excludeAlphanumeric = [NSCharacterSet alphanumericCharacterSet].invertedSet;
-        NSArray *words =
-            [self.contactName componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-        for (NSString *word in words) {
-            NSString *trimmedWord = [word stringByTrimmingCharactersInSet:excludeAlphanumeric];
-            if (trimmedWord.length > 0) {
-                NSString *firstLetter = [trimmedWord substringToIndex:1];
-                [initials appendString:firstLetter.localizedUppercaseString];
-            }
-        }
-
-        NSRange stringRange = { 0, MIN([initials length], (NSUInteger)3) }; // Rendering max 3 letters.
-        initials = [[initials substringWithRange:stringRange] mutableCopy];
     }
 
     UIColor *color = [OWSConversationColor conversationColorOrDefaultForColorName:self.colorName].themeColor;
     OWSAssertDebug(color);
 
     UIImage *_Nullable image;
-    if (initials.length == 0) {
+    if (self.contactInitials.length == 0) {
         // We don't have a name for this contact, so we can't make an "initials" image.
 
         UIImage *icon;
@@ -183,10 +243,14 @@ NS_ASSUME_NONNULL_BEGIN
         CGFloat scaling = (self.diameter / (CGFloat)kStandardAvatarSize) * (28 / assetWidthPixels);
 
         CGSize iconSize = CGSizeScale(icon.size, scaling);
-        image =
-            [OWSAvatarBuilder avatarImageWithIcon:icon iconSize:iconSize backgroundColor:color diameter:self.diameter];
+        image = [OWSAvatarBuilder avatarImageWithIcon:icon
+                                             iconSize:iconSize
+                                      backgroundColor:color
+                                             diameter:self.diameter];
     } else {
-        image = [OWSAvatarBuilder avatarImageWithInitials:initials backgroundColor:color diameter:self.diameter];
+        image = [OWSAvatarBuilder avatarImageWithInitials:self.contactInitials
+                                          backgroundColor:color
+                                                 diameter:self.diameter];
     }
 
     if (!image) {
@@ -194,31 +258,30 @@ NS_ASSUME_NONNULL_BEGIN
         return nil;
     }
 
-    [OWSContactAvatarBuilder.contactsManager.avatarCache setImage:image forKey:self.cacheKey diameter:self.diameter];
+    [OWSContactAvatarBuilder.contactsManager setImageForAvatarCache:image forKey:self.cacheKey diameter:self.diameter];
     return image;
 }
 
 - (nullable UIImage *)noteToSelfImageWithConversationColorName:(ConversationColorName)conversationColorName
+                                                      diameter:(CGFloat)diameter
 {
-    UIImage *baseImage = [[UIImage imageNamed:@"note-to-self-avatar"] asTintedImageWithColor:UIColor.whiteColor];
+    UIImage *iconImage = [[UIImage imageNamed:@"note-112"] asTintedImageWithColor:UIColor.whiteColor];
     UIColor *backgroundColor = [OWSConversationColor conversationColorOrDefaultForColorName:conversationColorName].themeColor;
 
-    CGFloat paddingFactor = 1.6;
-    CGFloat paddedWidth = baseImage.size.width * paddingFactor;
-    CGFloat paddedheight = baseImage.size.height * paddingFactor;
-
-    UIGraphicsBeginImageContextWithOptions(CGSizeMake(paddedWidth, paddedheight), NO, 0.0);
+    CGFloat circleWidth = diameter;
+    UIGraphicsBeginImageContextWithOptions(CGSizeMake(circleWidth, circleWidth), NO, 0.0);
     CGContextRef _Nullable context = UIGraphicsGetCurrentContext();
     if (context == nil) {
         OWSFailDebug(@"failure: context was unexpectedly nil");
         return nil;
     }
     [backgroundColor setFill];
-    CGContextFillRect(context, CGRectMake(0, 0, paddedWidth, paddedheight));
+    CGContextFillRect(context, CGRectMake(0, 0, circleWidth, circleWidth));
 
-    CGPoint origin = CGPointMake((paddedWidth - baseImage.size.width) / 2.0f,
-                                 (paddedheight - baseImage.size.height) / 2.0f);
-    [baseImage drawAtPoint:origin];
+    CGFloat iconWidth = diameter * (CGFloat)0.625;
+    CGFloat iconOffset = (circleWidth - iconWidth) / 2;
+    CGRect iconRect = CGRectMake(iconOffset, iconOffset, iconWidth, iconWidth);
+    [iconImage drawInRect:iconRect];
 
     UIImage *paddedImage = UIGraphicsGetImageFromCurrentImageContext();
     if (paddedImage == nil) {

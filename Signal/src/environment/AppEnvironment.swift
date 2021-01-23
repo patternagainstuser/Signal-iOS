@@ -1,12 +1,13 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2021 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
 import SignalServiceKit
 import SignalMessaging
 
-@objc public class AppEnvironment: NSObject {
+@objc
+public class AppEnvironment: NSObject {
 
     private static var _shared: AppEnvironment = AppEnvironment()
 
@@ -32,10 +33,7 @@ import SignalMessaging
     public var callService: CallService
 
     @objc
-    public var outboundCallInitiator: OutboundCallInitiator
-
-    @objc
-    public var messageFetcherJob: MessageFetcherJob
+    public var outboundIndividualCallInitiator: OutboundIndividualCallInitiator
 
     @objc
     public var accountManager: AccountManager
@@ -50,9 +48,6 @@ import SignalMessaging
     public var sessionResetJobQueue: SessionResetJobQueue
 
     @objc
-    public var broadcastMediaMessageJobQueue: BroadcastMediaMessageJobQueue
-
-    @objc
     public var backup: OWSBackup
 
     @objc
@@ -61,16 +56,20 @@ import SignalMessaging
     @objc
     public var backupLazyRestore: BackupLazyRestore
 
+    @objc
+    let deviceTransferService = DeviceTransferService()
+
+    @objc
+    let audioPlayer = CVAudioPlayer()
+
     private override init() {
         self.callMessageHandler = WebRTCCallMessageHandler()
         self.callService = CallService()
-        self.outboundCallInitiator = OutboundCallInitiator()
-        self.messageFetcherJob = MessageFetcherJob()
+        self.outboundIndividualCallInitiator = OutboundIndividualCallInitiator()
         self.accountManager = AccountManager()
         self.notificationPresenter = NotificationPresenter()
         self.pushRegistrationManager = PushRegistrationManager()
         self.sessionResetJobQueue = SessionResetJobQueue()
-        self.broadcastMediaMessageJobQueue = BroadcastMediaMessageJobQueue()
         self.backup = OWSBackup()
         self.backupLazyRestore = BackupLazyRestore()
         self.userNotificationActionHandler = UserNotificationActionHandler()
@@ -86,15 +85,7 @@ import SignalMessaging
 
     @objc
     public func setup() {
-        AppReadiness.runNowOrWhenAppWillBecomeReady {
-            // For now, we can't create createCallUIAdapter until
-            // storage is ready, because the FeatureFlag.calling
-            // consults storage.
-
-            // TODO MULTIRING - once calling is enabled on all devices
-            // we can move this back to an inline call.
-            self.callService.createCallUIAdapter()
-        }
+        callService.individualCallService.createCallUIAdapter()
 
         // Hang certain singletons on SSKEnvironment too.
         SSKEnvironment.shared.notificationsManager = notificationPresenter

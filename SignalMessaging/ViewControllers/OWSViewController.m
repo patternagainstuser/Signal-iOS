@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSViewController.h"
@@ -29,29 +29,16 @@ NS_ASSUME_NONNULL_BEGIN
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
-- (instancetype)initWithNibName:(nullable NSString *)nibNameOrNil bundle:(nullable NSBundle *)nibBundleOrNil
+- (instancetype)init
 {
-    self = [super initWithNibName:nibNameOrNil bundle:nibBundleOrNil];
+    self = [super initWithNibName:nil bundle:nil];
     if (!self) {
         self.shouldUseTheme = YES;
         return self;
     }
-
+    
     [self observeActivation];
-
-    return self;
-}
-
-- (nullable instancetype)initWithCoder:(NSCoder *)aDecoder
-{
-    self = [super initWithCoder:aDecoder];
-    if (!self) {
-        self.shouldUseTheme = YES;
-        return self;
-    }
-
-    [self observeActivation];
-
+    
     return self;
 }
 
@@ -86,7 +73,7 @@ NS_ASSUME_NONNULL_BEGIN
     // appears.  We don't do any checking for accessibilityIdentifier collisions
     // so we're counting on the fact that navbar contents are short-lived.
     __block int accessibilityIdCounter = 0;
-    [navigationBar traverseViewHierarchyWithVisitor:^(UIView *view) {
+    [navigationBar traverseViewHierarchyDownwardWithVisitor:^(UIView *view) {
         if ([view isKindOfClass:[UIControl class]] && view.accessibilityIdentifier == nil) {
             // The view should probably be an instance of _UIButtonBarButton or _UIModernBarButton.
             view.accessibilityIdentifier = [NSString stringWithFormat:@"navbar-%d", accessibilityIdCounter];

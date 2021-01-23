@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 NS_ASSUME_NONNULL_BEGIN
@@ -16,43 +16,37 @@ extern NSString *const IsScreenBlockActiveDidChangeNotification;
 
 #pragma mark -
 
-const CGFloat OWSWindowManagerCallBannerHeight(void);
-
 extern const UIWindowLevel UIWindowLevel_Background;
+
+@protocol CallViewControllerWindowReference;
 
 @interface OWSWindowManager : NSObject
 
++ (instancetype)new NS_UNAVAILABLE;
 - (instancetype)init NS_UNAVAILABLE;
 - (instancetype)initDefault NS_DESIGNATED_INITIALIZER;
 
-+ (instancetype)sharedManager;
+@property (class, nonatomic, readonly, nonnull) OWSWindowManager *shared;
 
 - (void)setupWithRootWindow:(UIWindow *)rootWindow screenBlockingWindow:(UIWindow *)screenBlockingWindow;
 
 @property (nonatomic, readonly) UIWindow *rootWindow;
-@property (nonatomic, readonly) UIWindow *menuActionsWindow;
 @property (nonatomic) BOOL isScreenBlockActive;
 
 - (BOOL)isAppWindow:(UIWindow *)window;
 
 - (void)updateWindowFrames;
-- (void)ensureReturnToCallWindowFrame;
-
-#pragma mark - Message Actions
-
-@property (nonatomic, readonly) BOOL isPresentingMenuActions;
-
-- (void)showMenuActionsWindow:(UIViewController *)menuActionsViewController;
-- (void)hideMenuActionsWindow;
 
 #pragma mark - Calls
 
 @property (nonatomic, readonly) BOOL shouldShowCallView;
+@property (nonatomic, readonly) UIWindow *callViewWindow;
 
-- (void)startCall:(UIViewController *)callViewController;
-- (void)endCall:(UIViewController *)callViewController;
+- (void)startCall:(UIViewController<CallViewControllerWindowReference> *)callViewController;
+- (void)endCall:(UIViewController<CallViewControllerWindowReference> *)callViewController;
 - (void)leaveCallView;
-- (BOOL)hasCall;
+- (void)returnToCallView;
+@property (nonatomic, readonly) BOOL hasCall;
 
 @end
 

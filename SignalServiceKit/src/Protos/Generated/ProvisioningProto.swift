@@ -1,9 +1,10 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
 import SignalCoreKit
+import SwiftProtobuf
 
 // WARNING: This code is generated. Only edit within the markers.
 
@@ -13,27 +14,36 @@ public enum ProvisioningProtoError: Error {
 
 // MARK: - ProvisioningProtoProvisioningUuid
 
-@objc public class ProvisioningProtoProvisioningUuid: NSObject {
+@objc
+public class ProvisioningProtoProvisioningUuid: NSObject, Codable {
 
     // MARK: - ProvisioningProtoProvisioningUuidBuilder
 
-    @objc public class func builder(uuid: String) -> ProvisioningProtoProvisioningUuidBuilder {
+    @objc
+    public class func builder(uuid: String) -> ProvisioningProtoProvisioningUuidBuilder {
         return ProvisioningProtoProvisioningUuidBuilder(uuid: uuid)
     }
 
     // asBuilder() constructs a builder that reflects the proto's contents.
-    @objc public func asBuilder() -> ProvisioningProtoProvisioningUuidBuilder {
+    @objc
+    public func asBuilder() -> ProvisioningProtoProvisioningUuidBuilder {
         let builder = ProvisioningProtoProvisioningUuidBuilder(uuid: uuid)
+        if let _value = unknownFields {
+            builder.setUnknownFields(_value)
+        }
         return builder
     }
 
-    @objc public class ProvisioningProtoProvisioningUuidBuilder: NSObject {
+    @objc
+    public class ProvisioningProtoProvisioningUuidBuilder: NSObject {
 
         private var proto = ProvisioningProtos_ProvisioningUuid()
 
-        @objc fileprivate override init() {}
+        @objc
+        fileprivate override init() {}
 
-        @objc fileprivate init(uuid: String) {
+        @objc
+        fileprivate init(uuid: String) {
             super.init()
 
             setUuid(uuid)
@@ -50,18 +60,33 @@ public enum ProvisioningProtoError: Error {
             proto.uuid = valueParam
         }
 
-        @objc public func build() throws -> ProvisioningProtoProvisioningUuid {
-            return try ProvisioningProtoProvisioningUuid.parseProto(proto)
+        public func setUnknownFields(_ unknownFields: SwiftProtobuf.UnknownStorage) {
+            proto.unknownFields = unknownFields
         }
 
-        @objc public func buildSerializedData() throws -> Data {
-            return try ProvisioningProtoProvisioningUuid.parseProto(proto).serializedData()
+        @objc
+        public func build() throws -> ProvisioningProtoProvisioningUuid {
+            return try ProvisioningProtoProvisioningUuid(proto)
+        }
+
+        @objc
+        public func buildSerializedData() throws -> Data {
+            return try ProvisioningProtoProvisioningUuid(proto).serializedData()
         }
     }
 
     fileprivate let proto: ProvisioningProtos_ProvisioningUuid
 
-    @objc public let uuid: String
+    @objc
+    public let uuid: String
+
+    public var hasUnknownFields: Bool {
+        return !proto.unknownFields.data.isEmpty
+    }
+    public var unknownFields: SwiftProtobuf.UnknownStorage? {
+        guard hasUnknownFields else { return nil }
+        return proto.unknownFields
+    }
 
     private init(proto: ProvisioningProtos_ProvisioningUuid,
                  uuid: String) {
@@ -74,14 +99,15 @@ public enum ProvisioningProtoError: Error {
         return try self.proto.serializedData()
     }
 
-    @objc public class func parseData(_ serializedData: Data) throws -> ProvisioningProtoProvisioningUuid {
+    @objc
+    public convenience init(serializedData: Data) throws {
         let proto = try ProvisioningProtos_ProvisioningUuid(serializedData: serializedData)
-        return try parseProto(proto)
+        try self.init(proto)
     }
 
-    fileprivate class func parseProto(_ proto: ProvisioningProtos_ProvisioningUuid) throws -> ProvisioningProtoProvisioningUuid {
+    fileprivate convenience init(_ proto: ProvisioningProtos_ProvisioningUuid) throws {
         guard proto.hasUuid else {
-            throw ProvisioningProtoError.invalidProtobuf(description: "\(logTag) missing required field: uuid")
+            throw ProvisioningProtoError.invalidProtobuf(description: "\(Self.logTag) missing required field: uuid")
         }
         let uuid = proto.uuid
 
@@ -89,12 +115,22 @@ public enum ProvisioningProtoError: Error {
 
         // MARK: - End Validation Logic for ProvisioningProtoProvisioningUuid -
 
-        let result = ProvisioningProtoProvisioningUuid(proto: proto,
-                                                       uuid: uuid)
-        return result
+        self.init(proto: proto,
+                  uuid: uuid)
     }
 
-    @objc public override var debugDescription: String {
+    public required convenience init(from decoder: Swift.Decoder) throws {
+        let singleValueContainer = try decoder.singleValueContainer()
+        let serializedData = try singleValueContainer.decode(Data.self)
+        try self.init(serializedData: serializedData)
+    }
+    public func encode(to encoder: Swift.Encoder) throws {
+        var singleValueContainer = encoder.singleValueContainer()
+        try singleValueContainer.encode(try serializedData())
+    }
+
+    @objc
+    public override var debugDescription: String {
         return "\(proto)"
     }
 }
@@ -102,13 +138,15 @@ public enum ProvisioningProtoError: Error {
 #if DEBUG
 
 extension ProvisioningProtoProvisioningUuid {
-    @objc public func serializedDataIgnoringErrors() -> Data? {
+    @objc
+    public func serializedDataIgnoringErrors() -> Data? {
         return try! self.serializedData()
     }
 }
 
 extension ProvisioningProtoProvisioningUuid.ProvisioningProtoProvisioningUuidBuilder {
-    @objc public func buildIgnoringErrors() -> ProvisioningProtoProvisioningUuid? {
+    @objc
+    public func buildIgnoringErrors() -> ProvisioningProtoProvisioningUuid? {
         return try! self.build()
     }
 }
@@ -117,27 +155,36 @@ extension ProvisioningProtoProvisioningUuid.ProvisioningProtoProvisioningUuidBui
 
 // MARK: - ProvisioningProtoProvisionEnvelope
 
-@objc public class ProvisioningProtoProvisionEnvelope: NSObject {
+@objc
+public class ProvisioningProtoProvisionEnvelope: NSObject, Codable {
 
     // MARK: - ProvisioningProtoProvisionEnvelopeBuilder
 
-    @objc public class func builder(publicKey: Data, body: Data) -> ProvisioningProtoProvisionEnvelopeBuilder {
+    @objc
+    public class func builder(publicKey: Data, body: Data) -> ProvisioningProtoProvisionEnvelopeBuilder {
         return ProvisioningProtoProvisionEnvelopeBuilder(publicKey: publicKey, body: body)
     }
 
     // asBuilder() constructs a builder that reflects the proto's contents.
-    @objc public func asBuilder() -> ProvisioningProtoProvisionEnvelopeBuilder {
+    @objc
+    public func asBuilder() -> ProvisioningProtoProvisionEnvelopeBuilder {
         let builder = ProvisioningProtoProvisionEnvelopeBuilder(publicKey: publicKey, body: body)
+        if let _value = unknownFields {
+            builder.setUnknownFields(_value)
+        }
         return builder
     }
 
-    @objc public class ProvisioningProtoProvisionEnvelopeBuilder: NSObject {
+    @objc
+    public class ProvisioningProtoProvisionEnvelopeBuilder: NSObject {
 
         private var proto = ProvisioningProtos_ProvisionEnvelope()
 
-        @objc fileprivate override init() {}
+        @objc
+        fileprivate override init() {}
 
-        @objc fileprivate init(publicKey: Data, body: Data) {
+        @objc
+        fileprivate init(publicKey: Data, body: Data) {
             super.init()
 
             setPublicKey(publicKey)
@@ -166,20 +213,36 @@ extension ProvisioningProtoProvisioningUuid.ProvisioningProtoProvisioningUuidBui
             proto.body = valueParam
         }
 
-        @objc public func build() throws -> ProvisioningProtoProvisionEnvelope {
-            return try ProvisioningProtoProvisionEnvelope.parseProto(proto)
+        public func setUnknownFields(_ unknownFields: SwiftProtobuf.UnknownStorage) {
+            proto.unknownFields = unknownFields
         }
 
-        @objc public func buildSerializedData() throws -> Data {
-            return try ProvisioningProtoProvisionEnvelope.parseProto(proto).serializedData()
+        @objc
+        public func build() throws -> ProvisioningProtoProvisionEnvelope {
+            return try ProvisioningProtoProvisionEnvelope(proto)
+        }
+
+        @objc
+        public func buildSerializedData() throws -> Data {
+            return try ProvisioningProtoProvisionEnvelope(proto).serializedData()
         }
     }
 
     fileprivate let proto: ProvisioningProtos_ProvisionEnvelope
 
-    @objc public let publicKey: Data
+    @objc
+    public let publicKey: Data
 
-    @objc public let body: Data
+    @objc
+    public let body: Data
+
+    public var hasUnknownFields: Bool {
+        return !proto.unknownFields.data.isEmpty
+    }
+    public var unknownFields: SwiftProtobuf.UnknownStorage? {
+        guard hasUnknownFields else { return nil }
+        return proto.unknownFields
+    }
 
     private init(proto: ProvisioningProtos_ProvisionEnvelope,
                  publicKey: Data,
@@ -194,19 +257,20 @@ extension ProvisioningProtoProvisioningUuid.ProvisioningProtoProvisioningUuidBui
         return try self.proto.serializedData()
     }
 
-    @objc public class func parseData(_ serializedData: Data) throws -> ProvisioningProtoProvisionEnvelope {
+    @objc
+    public convenience init(serializedData: Data) throws {
         let proto = try ProvisioningProtos_ProvisionEnvelope(serializedData: serializedData)
-        return try parseProto(proto)
+        try self.init(proto)
     }
 
-    fileprivate class func parseProto(_ proto: ProvisioningProtos_ProvisionEnvelope) throws -> ProvisioningProtoProvisionEnvelope {
+    fileprivate convenience init(_ proto: ProvisioningProtos_ProvisionEnvelope) throws {
         guard proto.hasPublicKey else {
-            throw ProvisioningProtoError.invalidProtobuf(description: "\(logTag) missing required field: publicKey")
+            throw ProvisioningProtoError.invalidProtobuf(description: "\(Self.logTag) missing required field: publicKey")
         }
         let publicKey = proto.publicKey
 
         guard proto.hasBody else {
-            throw ProvisioningProtoError.invalidProtobuf(description: "\(logTag) missing required field: body")
+            throw ProvisioningProtoError.invalidProtobuf(description: "\(Self.logTag) missing required field: body")
         }
         let body = proto.body
 
@@ -214,13 +278,23 @@ extension ProvisioningProtoProvisioningUuid.ProvisioningProtoProvisioningUuidBui
 
         // MARK: - End Validation Logic for ProvisioningProtoProvisionEnvelope -
 
-        let result = ProvisioningProtoProvisionEnvelope(proto: proto,
-                                                        publicKey: publicKey,
-                                                        body: body)
-        return result
+        self.init(proto: proto,
+                  publicKey: publicKey,
+                  body: body)
     }
 
-    @objc public override var debugDescription: String {
+    public required convenience init(from decoder: Swift.Decoder) throws {
+        let singleValueContainer = try decoder.singleValueContainer()
+        let serializedData = try singleValueContainer.decode(Data.self)
+        try self.init(serializedData: serializedData)
+    }
+    public func encode(to encoder: Swift.Encoder) throws {
+        var singleValueContainer = encoder.singleValueContainer()
+        try singleValueContainer.encode(try serializedData())
+    }
+
+    @objc
+    public override var debugDescription: String {
         return "\(proto)"
     }
 }
@@ -228,13 +302,15 @@ extension ProvisioningProtoProvisioningUuid.ProvisioningProtoProvisioningUuidBui
 #if DEBUG
 
 extension ProvisioningProtoProvisionEnvelope {
-    @objc public func serializedDataIgnoringErrors() -> Data? {
+    @objc
+    public func serializedDataIgnoringErrors() -> Data? {
         return try! self.serializedData()
     }
 }
 
 extension ProvisioningProtoProvisionEnvelope.ProvisioningProtoProvisionEnvelopeBuilder {
-    @objc public func buildIgnoringErrors() -> ProvisioningProtoProvisionEnvelope? {
+    @objc
+    public func buildIgnoringErrors() -> ProvisioningProtoProvisionEnvelope? {
         return try! self.build()
     }
 }
@@ -243,16 +319,19 @@ extension ProvisioningProtoProvisionEnvelope.ProvisioningProtoProvisionEnvelopeB
 
 // MARK: - ProvisioningProtoProvisionMessage
 
-@objc public class ProvisioningProtoProvisionMessage: NSObject {
+@objc
+public class ProvisioningProtoProvisionMessage: NSObject, Codable {
 
     // MARK: - ProvisioningProtoProvisionMessageBuilder
 
-    @objc public class func builder(identityKeyPublic: Data, identityKeyPrivate: Data, provisioningCode: String, profileKey: Data) -> ProvisioningProtoProvisionMessageBuilder {
+    @objc
+    public class func builder(identityKeyPublic: Data, identityKeyPrivate: Data, provisioningCode: String, profileKey: Data) -> ProvisioningProtoProvisionMessageBuilder {
         return ProvisioningProtoProvisionMessageBuilder(identityKeyPublic: identityKeyPublic, identityKeyPrivate: identityKeyPrivate, provisioningCode: provisioningCode, profileKey: profileKey)
     }
 
     // asBuilder() constructs a builder that reflects the proto's contents.
-    @objc public func asBuilder() -> ProvisioningProtoProvisionMessageBuilder {
+    @objc
+    public func asBuilder() -> ProvisioningProtoProvisionMessageBuilder {
         let builder = ProvisioningProtoProvisionMessageBuilder(identityKeyPublic: identityKeyPublic, identityKeyPrivate: identityKeyPrivate, provisioningCode: provisioningCode, profileKey: profileKey)
         if let _value = number {
             builder.setNumber(_value)
@@ -269,16 +348,22 @@ extension ProvisioningProtoProvisionEnvelope.ProvisioningProtoProvisionEnvelopeB
         if hasProvisioningVersion {
             builder.setProvisioningVersion(provisioningVersion)
         }
+        if let _value = unknownFields {
+            builder.setUnknownFields(_value)
+        }
         return builder
     }
 
-    @objc public class ProvisioningProtoProvisionMessageBuilder: NSObject {
+    @objc
+    public class ProvisioningProtoProvisionMessageBuilder: NSObject {
 
         private var proto = ProvisioningProtos_ProvisionMessage()
 
-        @objc fileprivate override init() {}
+        @objc
+        fileprivate override init() {}
 
-        @objc fileprivate init(identityKeyPublic: Data, identityKeyPrivate: Data, provisioningCode: String, profileKey: Data) {
+        @objc
+        fileprivate init(identityKeyPublic: Data, identityKeyPrivate: Data, provisioningCode: String, profileKey: Data) {
             super.init()
 
             setIdentityKeyPublic(identityKeyPublic)
@@ -374,67 +459,95 @@ extension ProvisioningProtoProvisionEnvelope.ProvisioningProtoProvisionEnvelopeB
             proto.provisioningVersion = valueParam
         }
 
-        @objc public func build() throws -> ProvisioningProtoProvisionMessage {
-            return try ProvisioningProtoProvisionMessage.parseProto(proto)
+        public func setUnknownFields(_ unknownFields: SwiftProtobuf.UnknownStorage) {
+            proto.unknownFields = unknownFields
         }
 
-        @objc public func buildSerializedData() throws -> Data {
-            return try ProvisioningProtoProvisionMessage.parseProto(proto).serializedData()
+        @objc
+        public func build() throws -> ProvisioningProtoProvisionMessage {
+            return try ProvisioningProtoProvisionMessage(proto)
+        }
+
+        @objc
+        public func buildSerializedData() throws -> Data {
+            return try ProvisioningProtoProvisionMessage(proto).serializedData()
         }
     }
 
     fileprivate let proto: ProvisioningProtos_ProvisionMessage
 
-    @objc public let identityKeyPublic: Data
+    @objc
+    public let identityKeyPublic: Data
 
-    @objc public let identityKeyPrivate: Data
+    @objc
+    public let identityKeyPrivate: Data
 
-    @objc public let provisioningCode: String
+    @objc
+    public let provisioningCode: String
 
-    @objc public let profileKey: Data
+    @objc
+    public let profileKey: Data
 
-    @objc public var number: String? {
-        guard proto.hasNumber else {
+    @objc
+    public var number: String? {
+        guard hasNumber else {
             return nil
         }
         return proto.number
     }
-    @objc public var hasNumber: Bool {
+    @objc
+    public var hasNumber: Bool {
         return proto.hasNumber
     }
 
-    @objc public var uuid: String? {
-        guard proto.hasUuid else {
+    @objc
+    public var uuid: String? {
+        guard hasUuid else {
             return nil
         }
         return proto.uuid
     }
-    @objc public var hasUuid: Bool {
+    @objc
+    public var hasUuid: Bool {
         return proto.hasUuid
     }
 
-    @objc public var userAgent: String? {
-        guard proto.hasUserAgent else {
+    @objc
+    public var userAgent: String? {
+        guard hasUserAgent else {
             return nil
         }
         return proto.userAgent
     }
-    @objc public var hasUserAgent: Bool {
+    @objc
+    public var hasUserAgent: Bool {
         return proto.hasUserAgent
     }
 
-    @objc public var readReceipts: Bool {
+    @objc
+    public var readReceipts: Bool {
         return proto.readReceipts
     }
-    @objc public var hasReadReceipts: Bool {
+    @objc
+    public var hasReadReceipts: Bool {
         return proto.hasReadReceipts
     }
 
-    @objc public var provisioningVersion: UInt32 {
+    @objc
+    public var provisioningVersion: UInt32 {
         return proto.provisioningVersion
     }
-    @objc public var hasProvisioningVersion: Bool {
+    @objc
+    public var hasProvisioningVersion: Bool {
         return proto.hasProvisioningVersion
+    }
+
+    public var hasUnknownFields: Bool {
+        return !proto.unknownFields.data.isEmpty
+    }
+    public var unknownFields: SwiftProtobuf.UnknownStorage? {
+        guard hasUnknownFields else { return nil }
+        return proto.unknownFields
     }
 
     private init(proto: ProvisioningProtos_ProvisionMessage,
@@ -454,29 +567,30 @@ extension ProvisioningProtoProvisionEnvelope.ProvisioningProtoProvisionEnvelopeB
         return try self.proto.serializedData()
     }
 
-    @objc public class func parseData(_ serializedData: Data) throws -> ProvisioningProtoProvisionMessage {
+    @objc
+    public convenience init(serializedData: Data) throws {
         let proto = try ProvisioningProtos_ProvisionMessage(serializedData: serializedData)
-        return try parseProto(proto)
+        try self.init(proto)
     }
 
-    fileprivate class func parseProto(_ proto: ProvisioningProtos_ProvisionMessage) throws -> ProvisioningProtoProvisionMessage {
+    fileprivate convenience init(_ proto: ProvisioningProtos_ProvisionMessage) throws {
         guard proto.hasIdentityKeyPublic else {
-            throw ProvisioningProtoError.invalidProtobuf(description: "\(logTag) missing required field: identityKeyPublic")
+            throw ProvisioningProtoError.invalidProtobuf(description: "\(Self.logTag) missing required field: identityKeyPublic")
         }
         let identityKeyPublic = proto.identityKeyPublic
 
         guard proto.hasIdentityKeyPrivate else {
-            throw ProvisioningProtoError.invalidProtobuf(description: "\(logTag) missing required field: identityKeyPrivate")
+            throw ProvisioningProtoError.invalidProtobuf(description: "\(Self.logTag) missing required field: identityKeyPrivate")
         }
         let identityKeyPrivate = proto.identityKeyPrivate
 
         guard proto.hasProvisioningCode else {
-            throw ProvisioningProtoError.invalidProtobuf(description: "\(logTag) missing required field: provisioningCode")
+            throw ProvisioningProtoError.invalidProtobuf(description: "\(Self.logTag) missing required field: provisioningCode")
         }
         let provisioningCode = proto.provisioningCode
 
         guard proto.hasProfileKey else {
-            throw ProvisioningProtoError.invalidProtobuf(description: "\(logTag) missing required field: profileKey")
+            throw ProvisioningProtoError.invalidProtobuf(description: "\(Self.logTag) missing required field: profileKey")
         }
         let profileKey = proto.profileKey
 
@@ -484,15 +598,25 @@ extension ProvisioningProtoProvisionEnvelope.ProvisioningProtoProvisionEnvelopeB
 
         // MARK: - End Validation Logic for ProvisioningProtoProvisionMessage -
 
-        let result = ProvisioningProtoProvisionMessage(proto: proto,
-                                                       identityKeyPublic: identityKeyPublic,
-                                                       identityKeyPrivate: identityKeyPrivate,
-                                                       provisioningCode: provisioningCode,
-                                                       profileKey: profileKey)
-        return result
+        self.init(proto: proto,
+                  identityKeyPublic: identityKeyPublic,
+                  identityKeyPrivate: identityKeyPrivate,
+                  provisioningCode: provisioningCode,
+                  profileKey: profileKey)
     }
 
-    @objc public override var debugDescription: String {
+    public required convenience init(from decoder: Swift.Decoder) throws {
+        let singleValueContainer = try decoder.singleValueContainer()
+        let serializedData = try singleValueContainer.decode(Data.self)
+        try self.init(serializedData: serializedData)
+    }
+    public func encode(to encoder: Swift.Encoder) throws {
+        var singleValueContainer = encoder.singleValueContainer()
+        try singleValueContainer.encode(try serializedData())
+    }
+
+    @objc
+    public override var debugDescription: String {
         return "\(proto)"
     }
 }
@@ -500,13 +624,15 @@ extension ProvisioningProtoProvisionEnvelope.ProvisioningProtoProvisionEnvelopeB
 #if DEBUG
 
 extension ProvisioningProtoProvisionMessage {
-    @objc public func serializedDataIgnoringErrors() -> Data? {
+    @objc
+    public func serializedDataIgnoringErrors() -> Data? {
         return try! self.serializedData()
     }
 }
 
 extension ProvisioningProtoProvisionMessage.ProvisioningProtoProvisionMessageBuilder {
-    @objc public func buildIgnoringErrors() -> ProvisioningProtoProvisionMessage? {
+    @objc
+    public func buildIgnoringErrors() -> ProvisioningProtoProvisionMessage? {
         return try! self.build()
     }
 }

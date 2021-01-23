@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 #import "MainAppContext.h"
@@ -244,16 +244,11 @@ NSString *const ReportedApplicationStateDidChangeNotification = @"ReportedApplic
     [UIApplication.sharedApplication endBackgroundTask:backgroundTaskIdentifier];
 }
 
-- (void)ensureSleepBlocking:(BOOL)shouldBeBlocking blockingObjects:(NSArray<id> *)blockingObjects
+- (void)ensureSleepBlocking:(BOOL)shouldBeBlocking blockingObjectsDescription:(NSString *)blockingObjectsDescription
 {
     if (UIApplication.sharedApplication.isIdleTimerDisabled != shouldBeBlocking) {
         if (shouldBeBlocking) {
-            NSMutableString *logString =
-                [NSMutableString stringWithFormat:@"Blocking sleep because of: %@", blockingObjects.firstObject];
-            if (blockingObjects.count > 1) {
-                [logString appendString:[NSString stringWithFormat:@"(and %lu others)", blockingObjects.count - 1]];
-            }
-            OWSLogInfo(@"%@", logString);
+            OWSLogInfo(@"Blocking sleep because of: %@", blockingObjectsDescription);
         } else {
             OWSLogInfo(@"Unblocking Sleep.");
         }
@@ -269,6 +264,11 @@ NSString *const ReportedApplicationStateDidChangeNotification = @"ReportedApplic
 - (nullable UIViewController *)frontmostViewController
 {
     return UIApplication.sharedApplication.frontmostViewControllerIgnoringAlerts;
+}
+
+- (void)openSystemSettings
+{
+    [UIApplication.sharedApplication openSystemSettings];
 }
 
 - (nullable ActionSheetAction *)openSystemSettingsActionWithCompletion:(void (^_Nullable)(void))completion
@@ -313,7 +313,7 @@ NSString *const ReportedApplicationStateDidChangeNotification = @"ReportedApplic
 
 - (CGRect)frame
 {
-    return UIApplication.sharedApplication.keyWindow.frame;
+    return self.mainWindow.frame;
 }
 
 - (UIInterfaceOrientation)interfaceOrientation
@@ -386,7 +386,7 @@ NSString *const ReportedApplicationStateDidChangeNotification = @"ReportedApplic
 - (NSString *)appSharedDataDirectoryPath
 {
     NSURL *groupContainerDirectoryURL =
-        [[NSFileManager defaultManager] containerURLForSecurityApplicationGroupIdentifier:SignalApplicationGroup];
+        [[NSFileManager defaultManager] containerURLForSecurityApplicationGroupIdentifier:TSConstants.applicationGroup];
     return [groupContainerDirectoryURL path];
 }
 
@@ -401,7 +401,32 @@ NSString *const ReportedApplicationStateDidChangeNotification = @"ReportedApplic
 
 - (NSUserDefaults *)appUserDefaults
 {
-    return [[NSUserDefaults alloc] initWithSuiteName:SignalApplicationGroup];
+    return [[NSUserDefaults alloc] initWithSuiteName:TSConstants.applicationGroup];
+}
+
+- (BOOL)canPresentNotifications
+{
+    return YES;
+}
+
+- (BOOL)shouldProcessIncomingMessages
+{
+    return YES;
+}
+
+- (BOOL)hasUI
+{
+    return YES;
+}
+
+- (BOOL)didLastLaunchNotTerminate
+{
+    return SignalApp.sharedApp.didLastLaunchNotTerminate;
+}
+
+- (NSString *)debugLogsDirPath
+{
+    return DebugLogger.mainAppDebugLogsDirPath;
 }
 
 @end

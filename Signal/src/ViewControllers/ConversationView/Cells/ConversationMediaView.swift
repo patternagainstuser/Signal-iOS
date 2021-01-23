@@ -1,11 +1,10 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2021 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
 
-@objc(OWSConversationMediaView)
-public class ConversationMediaView: UIView {
+public class CVMediaView: UIView {
 
     private enum MediaError {
         case missing
@@ -13,19 +12,13 @@ public class ConversationMediaView: UIView {
         case failed
     }
 
-    // MARK: - Dependencies
-
-    private var attachmentDownloads: OWSAttachmentDownloads {
-        return SSKEnvironment.shared.attachmentDownloads
-    }
-
     // MARK: -
 
     private let mediaCache: NSCache<NSString, AnyObject>
-    @objc
     public let attachment: TSAttachment
     private let isOutgoing: Bool
     private let maxMessageWidth: CGFloat
+    private let isBorderless: Bool
     private var loadBlock : (() -> Void)?
     private var unloadBlock : (() -> Void)?
 
@@ -86,19 +79,20 @@ public class ConversationMediaView: UIView {
 
     // MARK: - Initializers
 
-    @objc
     public required init(mediaCache: NSCache<NSString, AnyObject>,
                          attachment: TSAttachment,
                          isOutgoing: Bool,
-                         maxMessageWidth: CGFloat) {
+                         maxMessageWidth: CGFloat,
+                         isBorderless: Bool) {
         self.mediaCache = mediaCache
         self.attachment = attachment
         self.isOutgoing = isOutgoing
         self.maxMessageWidth = maxMessageWidth
+        self.isBorderless = isBorderless
 
         super.init(frame: .zero)
 
-        backgroundColor = Theme.washColor
+        backgroundColor = isBorderless ? .clear : Theme.washColor
         clipsToBounds = true
 
         createContents()
@@ -121,15 +115,13 @@ public class ConversationMediaView: UIView {
         AssertIsOnMainThread()
 
         guard let attachmentStream = attachment as? TSAttachmentStream else {
-            tryToConfigureForBlurHash(attachment: attachment)
-            addDownloadProgressIfNecessary()
-            return
+            return configureForUndownloadedImage()
         }
         guard !isFailedDownload else {
             configure(forError: .failed)
             return
         }
-        if attachmentStream.isAnimated {
+        if attachmentStream.shouldBeRenderedByYY {
             configureForAnimatedImage(attachmentStream: attachmentStream)
         } else if attachmentStream.isImage {
             configureForStillImage(attachmentStream: attachmentStream)
@@ -139,6 +131,20 @@ public class ConversationMediaView: UIView {
             owsFailDebug("Attachment has unexpected type.")
             configure(forError: .invalid)
         }
+    }
+
+    private func configureForUndownloadedImage() {
+        tryToConfigureForBlurHash(attachment: attachment)
+
+        guard !isFailedDownload else {
+            return configure(forError: .failed)
+        }
+
+        guard !isPendingDownload else {
+            return
+        }
+
+        addDownloadProgressIfNecessary()
     }
 
     private func addDownloadProgressIfNecessary() {
@@ -164,7 +170,7 @@ public class ConversationMediaView: UIView {
         }
 
         backgroundColor = (Theme.isDarkThemeEnabled ? .ows_gray90 : .ows_gray05)
-        let progressView = MediaDownloadView(attachmentId: attachmentId, radius: maxMessageWidth * 0.1)
+        let progressView = MediaDownloadView(attachmentId: attachmentId, radius: 22, withCircle: true)
         self.addSubview(progressView)
         progressView.autoPinEdgesToSuperviewEdges()
     }
@@ -249,7 +255,7 @@ public class ConversationMediaView: UIView {
         // some performance cost.
         animatedImageView.layer.minificationFilter = .trilinear
         animatedImageView.layer.magnificationFilter = .trilinear
-        animatedImageView.backgroundColor = Theme.washColor
+        animatedImageView.backgroundColor = isBorderless ? .clear : Theme.washColor
         addSubview(animatedImageView)
         animatedImageView.autoPinEdgesToSuperviewEdges()
         _ = addUploadProgressIfNecessary(animatedImageView)
@@ -305,7 +311,7 @@ public class ConversationMediaView: UIView {
         // some performance cost.
         stillImageView.layer.minificationFilter = .trilinear
         stillImageView.layer.magnificationFilter = .trilinear
-        stillImageView.backgroundColor = Theme.washColor
+        stillImageView.backgroundColor = isBorderless ? .clear : Theme.washColor
         addSubview(stillImageView)
         stillImageView.autoPinEdgesToSuperviewEdges()
         _ = addUploadProgressIfNecessary(stillImageView)
@@ -321,7 +327,7 @@ public class ConversationMediaView: UIView {
                     Logger.warn("Ignoring invalid attachment.")
                     return nil
                 }
-                return attachmentStream.thumbnailImageMedium(success: { (image) in
+                return attachmentStream.thumbnailImageLarge(success: { (image) in
                     AssertIsOnMainThread()
 
                     stillImageView.image = image
@@ -363,8 +369,8 @@ public class ConversationMediaView: UIView {
         stillImageView.autoPinEdgesToSuperviewEdges()
 
         if !addUploadProgressIfNecessary(stillImageView) {
-            let videoPlayIcon = UIImage(named: "play_button")
-            let videoPlayButton = UIImageView(image: videoPlayIcon)
+            let videoPlayButton = Self.buildVideoPlayButton {}
+            videoPlayButton.isUserInteractionEnabled = false
             stillImageView.addSubview(videoPlayButton)
             videoPlayButton.autoCenterInSuperview()
         }
@@ -381,7 +387,7 @@ public class ConversationMediaView: UIView {
                     Logger.warn("Ignoring invalid attachment.")
                     return nil
                 }
-                return attachmentStream.thumbnailImageMedium(success: { (image) in
+                return attachmentStream.thumbnailImageLarge(success: { (image) in
                     AssertIsOnMainThread()
 
                     stillImageView.image = image
@@ -407,11 +413,50 @@ public class ConversationMediaView: UIView {
         }
     }
 
+    @objc
+    public static func buildVideoPlayButton(block: @escaping () -> Void) -> UIView {
+        let playVideoButton = OWSButton(block: block)
+
+        let playVideoCircleView = OWSLayerView(frame: .zero) { view in
+            view.layer.cornerRadius = min(view.width, view.height) * 0.5
+        }
+        playVideoCircleView.backgroundColor = UIColor.ows_black.withAlphaComponent(0.7)
+        playVideoCircleView.isUserInteractionEnabled = false
+        playVideoButton.addSubview(playVideoCircleView)
+
+        let playVideoIconView = UIImageView.withTemplateImageName("play-solid-32",
+                                                                  tintColor: UIColor.ows_white)
+        playVideoIconView.isUserInteractionEnabled = false
+        playVideoButton.addSubview(playVideoIconView)
+
+        let playVideoButtonWidth = ScaleFromIPhone5(44)
+        let playVideoIconWidth = ScaleFromIPhone5(20)
+        playVideoButton.autoSetDimensions(to: CGSize(square: playVideoButtonWidth))
+        playVideoIconView.autoSetDimensions(to: CGSize(square: playVideoIconWidth))
+        playVideoCircleView.autoPinEdgesToSuperviewEdges()
+        playVideoIconView.autoCenterInSuperview()
+
+        return playVideoButton
+    }
+
+    private var isPendingDownload: Bool {
+        guard let attachmentPointer = attachment as? TSAttachmentPointer else {
+            return false
+        }
+        return (attachmentPointer.state == .pendingMessageRequest ||
+            attachmentPointer.state == .pendingManualDownload)
+
+    }
+
     private var isFailedDownload: Bool {
         guard let attachmentPointer = attachment as? TSAttachmentPointer else {
             return false
         }
         return attachmentPointer.state == .failed
+    }
+
+    private var hasBlurHash: Bool {
+        return BlurHash.isValidBlurHash(attachment.blurHash)
     }
 
     private func configure(forError error: MediaError) {
@@ -483,14 +528,14 @@ public class ConversationMediaView: UIView {
         Logger.verbose("media cache miss")
 
         let threadSafeLoadState = self.threadSafeLoadState
-        ConversationMediaView.loadQueue.async {
+        CVMediaView.loadQueue.async {
             guard threadSafeLoadState.get() == .loading else {
                 Logger.verbose("Skipping obsolete load.")
                 return
             }
 
             guard let media = loadMediaBlock() else {
-                Logger.error("Failed to load media.")
+                Logger.info("Failed to load media.")
 
                 DispatchQueue.main.async {
                     loadCompletion(nil)
@@ -521,7 +566,6 @@ public class ConversationMediaView: UIView {
     //   "skip rate" of obsolete loads.
     private static let loadQueue = ReverseDispatchQueue(label: "org.signal.asyncMediaLoadQueue")
 
-    @objc
     public func loadMedia() {
         AssertIsOnMainThread()
 
@@ -538,7 +582,6 @@ public class ConversationMediaView: UIView {
         }
     }
 
-    @objc
     public func unloadMedia() {
         AssertIsOnMainThread()
 

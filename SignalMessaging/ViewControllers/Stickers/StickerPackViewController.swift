@@ -1,19 +1,12 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
 import SignalServiceKit
-import YYImage
 
 @objc
 public class StickerPackViewController: OWSViewController {
-
-    // MARK: - Dependencies
-
-    private var databaseStorage: SDSDatabaseStorage {
-        return SDSDatabaseStorage.shared
-    }
 
     // MARK: Properties
 
@@ -25,30 +18,18 @@ public class StickerPackViewController: OWSViewController {
 
     // MARK: Initializers
 
-    @available(*, unavailable, message:"use other constructor instead.")
-    required public init?(coder aDecoder: NSCoder) {
-        notImplemented()
-    }
-
     @objc
     public required init(stickerPackInfo: StickerPackInfo) {
         self.stickerPackInfo = stickerPackInfo
         self.dataSource = TransientStickerPackDataSource(stickerPackInfo: stickerPackInfo,
                                                          shouldDownloadAllStickers: true)
 
-        super.init(nibName: nil, bundle: nil)
-
-        if #available(iOS 13, *) {
-            // do nothing, use automatic style
-        } else {
-            modalPresentationStyle = .overFullScreen
-        }
+        super.init()
 
         stickerCollectionView.stickerDelegate = self
         stickerCollectionView.show(dataSource: dataSource)
         dataSource.add(delegate: self)
 
-        NotificationCenter.default.addObserver(self, selector: #selector(callDidChange), name: .OWSWindowManagerCallDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(didChangeStatusBarFrame), name: UIApplication.didChangeStatusBarFrameNotification, object: nil)
         NotificationCenter.default.addObserver(self,
                                                selector: #selector(stickersOrPacksDidChange),
@@ -62,16 +43,53 @@ public class StickerPackViewController: OWSViewController {
 
     // MARK: - View Lifecycle
 
+    override public var canBecomeFirstResponder: Bool {
+        return true
+    }
+
+    @objc
+    public func present(from fromViewController: UIViewController,
+                        animated: Bool) {
+        AssertIsOnMainThread()
+
+        #if swift(>=5.1)
+            if #available(iOS 13, *) {
+                // iOS 13 on the iOS 13 SDK handles the modal blur correctly.
+                fromViewController.presentFormSheet(self, animated: animated) {
+                    // ensure any presented keyboard is dismissed, this seems to be
+                    // an issue only when opening signal from a universal link in
+                    // an external app
+                    self.becomeFirstResponder()
+                }
+                return
+            }
+        #endif
+
+        // Pre-iOS 13, or without the iOS 13 SDK, we need to manualy setup the
+        // form sheet in order to allow it to blur and show through the background.
+
+        modalPresentationStyle = .custom
+        transitioningDelegate = self
+        fromViewController.present(self, animated: animated) {
+            // ensure any presented keyboard is dismissed, this seems to be
+            // an issue only when opening signal from a universal link in
+            // an external app
+            self.becomeFirstResponder()
+        }
+    }
+
     override public func loadView() {
-        super.loadView()
+        view = UIView()
 
         if UIAccessibility.isReduceTransparencyEnabled {
             view.backgroundColor = Theme.darkThemeBackgroundColor
         } else {
-            view.backgroundColor = UIColor(white: 0, alpha: 0.6)
+            view.backgroundColor = .clear
             view.isOpaque = false
 
-            let blurEffect = Theme.barBlurEffect
+            // Unlike Theme.barBlurEffect, we use light blur in dark theme
+            // and dark blur in light theme.
+            let blurEffect = UIBlurEffect(style: Theme.isDarkThemeEnabled ? .light : .dark)
             let blurEffectView = UIVisualEffectView(effect: blurEffect)
             view.addSubview(blurEffectView)
             blurEffectView.autoPinEdgesToSuperviewEdges()
@@ -84,28 +102,27 @@ public class StickerPackViewController: OWSViewController {
         dismissButton.contentEdgeInsets = UIEdgeInsets(top: 20, leading: hMargin, bottom: 20, trailing: hMargin)
         dismissButton.accessibilityIdentifier = UIView.accessibilityIdentifier(in: self, name: "dismissButton")
 
-        coverView.autoSetDimensions(to: CGSize(width: 48, height: 48))
+        coverView.autoSetDimensions(to: CGSize(square: 64))
         coverView.setCompressionResistanceHigh()
         coverView.setContentHuggingHigh()
 
         titleLabel.textColor = Theme.darkThemePrimaryColor
-        titleLabel.font = UIFont.ows_dynamicTypeTitle1.ows_semibold()
+        titleLabel.numberOfLines = 2
+        titleLabel.lineBreakMode = .byWordWrapping
+        titleLabel.font = UIFont.ows_dynamicTypeTitle1.ows_semibold
 
-        authorLabel.textColor = Theme.darkThemePrimaryColor
         authorLabel.font = UIFont.ows_dynamicTypeBody
 
-        defaultPackIconView.setTemplateImageName("check-circle-filled-16", tintColor: UIColor.ows_signalBlue)
+        defaultPackIconView.setTemplateImageName("check-circle-filled-16", tintColor: Theme.accentBlueColor)
         defaultPackIconView.isHidden = true
 
-        if FeatureFlags.stickerSharing {
-            shareButton.setTemplateImageName("forward-outline-24", tintColor: Theme.darkThemePrimaryColor)
-            shareButton.addTarget(self, action: #selector(shareButtonPressed(sender:)), for: .touchUpInside)
-            shareButton.accessibilityIdentifier = UIView.accessibilityIdentifier(in: self, name: "shareButton")
-        }
+        shareButton.setTemplateImageName("forward-solid-24", tintColor: Theme.darkThemePrimaryColor)
+        shareButton.addTarget(self, action: #selector(shareButtonPressed(sender:)), for: .touchUpInside)
+        shareButton.accessibilityIdentifier = UIView.accessibilityIdentifier(in: self, name: "shareButton")
 
         view.addSubview(dismissButton)
         dismissButton.autoPinEdge(toSuperviewEdge: .leading)
-        dismissButton.autoPin(toTopLayoutGuideOf: self, withInset: 0)
+        dismissButton.autoPinEdge(toSuperviewSafeArea: .top)
 
         let bottomRowView = UIStackView(arrangedSubviews: [ defaultPackIconView, authorLabel ])
         bottomRowView.axis = .horizontal
@@ -127,26 +144,26 @@ public class StickerPackViewController: OWSViewController {
         textRowsView.setCompressionResistanceHorizontalLow()
         textRowsView.setContentHuggingHorizontalLow()
 
-        self.view.addSubview(headerStack)
+        view.addSubview(headerStack)
         headerStack.autoPinEdge(.top, to: .bottom, of: dismissButton)
         headerStack.autoPinWidthToSuperview()
 
         stickerCollectionView.backgroundColor = .clear
-        self.view.addSubview(stickerCollectionView)
+        view.addSubview(stickerCollectionView)
         stickerCollectionView.autoPinWidthToSuperview()
         stickerCollectionView.autoPinEdge(.top, to: .bottom, of: headerStack)
 
         let installButton = OWSFlatButton.button(title: NSLocalizedString("STICKERS_INSTALL_BUTTON", comment: "Label for the 'install sticker pack' button."),
-                                             font: UIFont.ows_dynamicTypeBody.ows_semibold(),
-                                             titleColor: UIColor.ows_signalBlue,
+                                             font: UIFont.ows_dynamicTypeBody.ows_semibold,
+                                             titleColor: Theme.accentBlueColor,
                                              backgroundColor: UIColor.white,
                                              target: self,
                                              selector: #selector(didTapInstall))
         self.installButton = installButton
         installButton.accessibilityIdentifier = UIView.accessibilityIdentifier(in: self, name: "installButton")
         let uninstallButton = OWSFlatButton.button(title: NSLocalizedString("STICKERS_UNINSTALL_BUTTON", comment: "Label for the 'uninstall sticker pack' button."),
-                                             font: UIFont.ows_dynamicTypeBody.ows_semibold(),
-                                             titleColor: UIColor.ows_signalBlue,
+                                             font: UIFont.ows_dynamicTypeBody.ows_semibold,
+                                             titleColor: Theme.accentBlueColor,
                                              backgroundColor: UIColor.white,
                                              target: self,
                                              selector: #selector(didTapUninstall))
@@ -154,7 +171,7 @@ public class StickerPackViewController: OWSViewController {
         uninstallButton.accessibilityIdentifier = UIView.accessibilityIdentifier(in: self, name: "uninstallButton")
         for button in [installButton, uninstallButton] {
             view.addSubview(button)
-            button.autoPin(toBottomLayoutGuideOf: self, withInset: 10)
+            button.autoPinEdge(toSuperviewSafeArea: .bottom, withInset: 10)
             button.autoPinEdge(.top, to: .bottom, of: stickerCollectionView)
             button.autoPinWidthToSuperview(withMargin: hMargin)
             button.autoSetHeightUsingFont()
@@ -188,7 +205,7 @@ public class StickerPackViewController: OWSViewController {
     }
 
     private let dismissButton = UIButton()
-    private let coverView = YYAnimatedImageView()
+    private let coverView = UIView()
     private let titleLabel = UILabel()
     private let authorLabel = UILabel()
     private let defaultPackIconView = UIImageView()
@@ -204,6 +221,8 @@ public class StickerPackViewController: OWSViewController {
     private var loadTimerHasFired = false
 
     private func updateContent() {
+        guard !isDismissing else { return }
+
         updateCover()
         updateInsets()
 
@@ -238,7 +257,9 @@ public class StickerPackViewController: OWSViewController {
 
         authorLabel.text = stickerPack.author?.filterForDisplay
 
-        defaultPackIconView.isHidden = !StickerManager.isDefaultStickerPack(stickerPack.info)
+        let isDefaultStickerPack = StickerManager.isDefaultStickerPack(stickerPack.info)
+        authorLabel.textColor = isDefaultStickerPack ? Theme.accentBlueColor : Theme.darkThemePrimaryColor
+        defaultPackIconView.isHidden = !isDefaultStickerPack
 
         // We need to consult StickerManager for the latest "isInstalled"
         // state, since the data source may be caching stale state.
@@ -252,45 +273,29 @@ public class StickerPackViewController: OWSViewController {
     }
 
     private func updateCover() {
-        guard let stickerPack = dataSource.getStickerPack() else {
-            coverView.isHidden = true
-            return
+        for subview in coverView.subviews {
+            subview.removeFromSuperview()
         }
+        guard let stickerPack = dataSource.getStickerPack() else { return }
         let coverInfo = stickerPack.coverInfo
-        guard let filePath = dataSource.filePath(forSticker: coverInfo) else {
-            // This can happen if the pack hasn't been saved yet, e.g.
-            // this view was opened from a sticker pack URL or share.
-            Logger.warn("Missing sticker data file path.")
-            coverView.isHidden = true
+        guard let stickerView = StickerView.stickerView(forStickerInfo: coverInfo, dataSource: dataSource) else {
             return
         }
-        guard NSData.ows_isValidImage(atPath: filePath, mimeType: OWSMimeTypeImageWebp) else {
-            owsFailDebug("Invalid sticker.")
-            coverView.isHidden = true
-            return
-        }
-        guard let stickerImage = YYImage(contentsOfFile: filePath) else {
-            owsFailDebug("Sticker could not be parsed.")
-            coverView.isHidden = true
-            return
-        }
-
-        coverView.image = stickerImage
-        coverView.isHidden = false
+        coverView.addSubview(stickerView)
+        stickerView.autoPinEdgesToSuperviewEdges()
     }
 
     private func updateInsets() {
         UIView.setAnimationsEnabled(false)
 
-        if #available(iOS 11.0, *) {
-            if (!CurrentAppContext().isMainApp) {
-                self.additionalSafeAreaInsets = .zero
-            } else if (OWSWindowManager.shared().hasCall()) {
-                self.additionalSafeAreaInsets = UIEdgeInsets(top: 20, leading: 0, bottom: 0, trailing: 0)
-            } else {
-                self.additionalSafeAreaInsets = .zero
-            }
+        if !CurrentAppContext().isMainApp {
+            self.additionalSafeAreaInsets = .zero
+        } else if OWSWindowManager.shared.hasCall {
+            self.additionalSafeAreaInsets = UIEdgeInsets(top: 20, leading: 0, bottom: 0, trailing: 0)
+        } else {
+            self.additionalSafeAreaInsets = .zero
         }
+
         UIView.setAnimationsEnabled(true)
     }
 
@@ -306,43 +311,36 @@ public class StickerPackViewController: OWSViewController {
 
     // - MARK: Events
 
+    private var isDismissing = false
+
     @objc
     private func didTapInstall(sender: UIButton) {
         AssertIsOnMainThread()
 
         Logger.verbose("")
 
+        isDismissing = true
+
         guard let stickerPack = dataSource.getStickerPack() else {
             owsFailDebug("Missing sticker pack.")
             return
         }
 
-        databaseStorage.write { (transaction) in
-            StickerManager.installStickerPack(stickerPack: stickerPack,
-                                              wasLocallyInitiated: true,
-                                              transaction: transaction)
-        }
-
-        updateContent()
-
         ModalActivityIndicatorViewController.present(fromViewController: self,
-                                                     canCancel: false) { modal in
-                                                        // Downloads for this sticker pack will already be enqueued by
-                                                        // StickerManager.saveStickerPack above.  We just use this
-                                                        // method to determine whether all sticker downloads succeeded.
-                                                        // Re-enqueuing should be cheap since already-downloaded stickers
-                                                        // will succeed immediately and failed stickers will fail again
-                                                        // quickly... or succeed this time.
-                                                        StickerManager.ensureDownloadsAsync(forStickerPack: stickerPack)
-                                                            .done {
-                                                                modal.dismiss {
-                                                                    // Do nothing.
-                                                                }
-                                                            }.catch { (_) in
-                                                                modal.dismiss {
-                                                                    OWSActionSheets.showErrorAlert(message: NSLocalizedString("STICKERS_PACK_INSTALL_FAILED", comment: "Error message shown when a sticker pack failed to install."))
-                                                                }
-                                                            }.retainUntilComplete()
+                                                     canCancel: false,
+                                                     presentationDelay: 0) { modal in
+
+                                                        self.databaseStorage.write { (transaction) in
+                                                            StickerManager.installStickerPack(stickerPack: stickerPack,
+                                                                                              wasLocallyInitiated: true,
+                                                                                              transaction: transaction)
+                                                        }
+
+                                                        DispatchQueue.main.async {
+                                                            modal.dismiss {
+                                                                self.dismiss(animated: true)
+                                                            }
+                                                        }
         }
     }
 
@@ -352,18 +350,32 @@ public class StickerPackViewController: OWSViewController {
 
         Logger.verbose("")
 
-        databaseStorage.write { (transaction) in
-            StickerManager.uninstallStickerPack(stickerPackInfo: self.stickerPackInfo,
-                                                wasLocallyInitiated: true,
-                                                transaction: transaction)
-        }
+        isDismissing = true
 
-        updateContent()
+        let stickerPackInfo = self.stickerPackInfo
+        ModalActivityIndicatorViewController.present(fromViewController: self,
+                                                     canCancel: false,
+                                                     presentationDelay: 0) { modal in
+
+                                                        self.databaseStorage.write { (transaction) in
+                                                            StickerManager.uninstallStickerPack(stickerPackInfo: stickerPackInfo,
+                                                                                                wasLocallyInitiated: true,
+                                                                                                transaction: transaction)
+                                                        }
+
+                                                        DispatchQueue.main.async {
+                                                            modal.dismiss {
+                                                                self.dismiss(animated: true)
+                                                            }
+                                                        }
+        }
     }
 
     @objc
     private func dismissButtonPressed(sender: UIButton) {
         AssertIsOnMainThread()
+
+        isDismissing = true
 
         dismiss(animated: true)
     }
@@ -381,13 +393,6 @@ public class StickerPackViewController: OWSViewController {
     }
 
     @objc
-    public func callDidChange() {
-        Logger.debug("")
-
-        updateContent()
-    }
-
-    @objc
     public func didChangeStatusBarFrame() {
         Logger.debug("")
 
@@ -400,6 +405,74 @@ public class StickerPackViewController: OWSViewController {
         Logger.verbose("")
 
         updateContent()
+    }
+}
+
+// MARK: -
+
+private class StickerPackViewControllerAnimationController: UIPresentationController {
+
+    let backdropView: UIView = UIView()
+
+    override init(presentedViewController: UIViewController, presenting presentingViewController: UIViewController?) {
+        super.init(presentedViewController: presentedViewController, presenting: presentingViewController)
+        backdropView.backgroundColor = Theme.backdropColor
+    }
+
+    override func presentationTransitionWillBegin() {
+        guard let containerView = containerView else { return }
+        backdropView.alpha = 0
+        containerView.addSubview(backdropView)
+        backdropView.autoPinEdgesToSuperviewEdges()
+
+        presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
+            self.backdropView.alpha = 1
+        }, completion: nil)
+    }
+
+    override func dismissalTransitionWillBegin() {
+        presentedViewController.transitionCoordinator?.animate(alongsideTransition: { _ in
+            self.backdropView.alpha = 0
+        }, completion: { _ in
+            self.backdropView.removeFromSuperview()
+        })
+    }
+
+    var isFullScreen: Bool {
+        guard let containerSize = containerView?.frame.size else { return true }
+        guard UIDevice.current.isIPad, containerSize.width > (max(UIScreen.main.bounds.width, UIScreen.main.bounds.height) / 2) - 5 else { return true }
+        return false
+    }
+
+    override var frameOfPresentedViewInContainerView: CGRect {
+        var frame = super.frameOfPresentedViewInContainerView
+        let containerSize = frame.size
+
+        if !isFullScreen {
+            frame.size = CGSize(width: 540, height: 620)
+            frame.origin = CGPoint(x: containerSize.width / 2 - frame.size.width / 2, y: containerSize.height / 2 - frame.size.height / 2)
+        }
+
+        return frame
+    }
+
+    override func containerViewWillLayoutSubviews() {
+        super.containerViewWillLayoutSubviews()
+        presentedView?.frame = frameOfPresentedViewInContainerView
+
+        if isFullScreen {
+            presentedView?.clipsToBounds = false
+            presentedView?.layer.cornerRadius = 0
+        } else {
+            presentedView?.clipsToBounds = true
+            presentedView?.layer.cornerRadius = 13
+        }
+    }
+}
+
+extension StickerPackViewController: UIViewControllerTransitioningDelegate {
+    public func presentationController(forPresented presented: UIViewController, presenting: UIViewController?, source: UIViewController) -> UIPresentationController? {
+        return StickerPackViewControllerAnimationController(presentedViewController: presented, presenting: presenting)
     }
 }
 

@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSWindowManager.h"
@@ -13,26 +13,6 @@ NS_ASSUME_NONNULL_BEGIN
 NSString *const OWSWindowManagerCallDidChangeNotification = @"OWSWindowManagerCallDidChangeNotification";
 
 NSString *const IsScreenBlockActiveDidChangeNotification = @"IsScreenBlockActiveDidChangeNotification";
-
-const CGFloat OWSWindowManagerCallBannerHeight(void)
-{
-    if (@available(iOS 11.4, *)) {
-        return CurrentAppContext().statusBarHeight + 20;
-    }
-
-    if (![UIDevice currentDevice].hasIPhoneXNotch) {
-        return CurrentAppContext().statusBarHeight + 20;
-    }
-
-    // Hardcode CallBanner height for iPhone X's on older iOS.
-    //
-    // As of iOS11.4 and iOS12, this no longer seems to be an issue, but previously statusBarHeight returned
-    // something like 20pts (IIRC), meaning our call banner did not extend sufficiently past the iPhone X notch.
-    //
-    // Before noticing that this behavior changed, I actually assumed that notch height was intentionally excluded from
-    // the statusBarHeight, and that this was not a bug, else I'd have taken better notes.
-    return 64;
-}
 
 // Behind everything, especially the root window.
 const UIWindowLevel UIWindowLevel_Background = -1.f;
@@ -56,36 +36,6 @@ const UIWindowLevel UIWindowLevel_ScreenBlocking(void)
 {
     return UIWindowLevelStatusBar + 2.f;
 }
-
-// In front of everything
-const UIWindowLevel UIWindowLevel_MessageActions(void);
-const UIWindowLevel UIWindowLevel_MessageActions(void)
-{
-    // Note: To cover the keyboard, this is higher than the ScreenBlocking level,
-    // but this window is hidden when screen protection is shown.
-    return CGFLOAT_MAX - 100;
-}
-
-#pragma mark -
-
-@interface MessageActionsWindow : UIWindow
-
-@end
-
-#pragma mark -
-
-@implementation MessageActionsWindow
-
-- (UIWindowLevel)windowLevel
-{
-    // As of iOS11, setWindowLevel clamps the value below
-    // the height of the keyboard window.
-    // Because we want to display above the keyboard, we hardcode
-    // the `windowLevel` getter.
-    return UIWindowLevel_MessageActions();
-}
-
-@end
 
 #pragma mark -
 
@@ -121,7 +71,7 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
 
 #pragma mark -
 
-@interface OWSWindowManager () <ReturnToCallViewControllerDelegate>
+@interface OWSWindowManager ()
 
 // UIWindowLevelNormal
 @property (nonatomic) UIWindow *rootWindow;
@@ -134,17 +84,13 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
 @property (nonatomic) UIWindow *callViewWindow;
 @property (nonatomic) UINavigationController *callNavigationController;
 
-// UIWindowLevel_MessageActions
-@property (nonatomic) UIWindow *menuActionsWindow;
-@property (nonatomic, nullable) UIViewController *menuActionsViewController;
-
 // UIWindowLevel_Background if inactive,
 // UIWindowLevel_ScreenBlocking() if active.
 @property (nonatomic) UIWindow *screenBlockingWindow;
 
 @property (nonatomic) BOOL shouldShowCallView;
 
-@property (nonatomic, nullable) UIViewController *callViewController;
+@property (nonatomic, nullable) UIViewController<CallViewControllerWindowReference> *callViewController;
 
 @end
 
@@ -152,7 +98,7 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
 
 @implementation OWSWindowManager
 
-+ (instancetype)sharedManager
++ (instancetype)shared
 {
     OWSAssertDebug(Environment.shared.windowManager);
 
@@ -186,40 +132,8 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
 
     self.returnToCallWindow = [self createReturnToCallWindow:rootWindow];
     self.callViewWindow = [self createCallViewWindow:rootWindow];
-    self.menuActionsWindow = [self createMenuActionsWindowWithRoowWindow:rootWindow];
-
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(didChangeStatusBarFrame:)
-                                                 name:UIApplicationDidChangeStatusBarFrameNotification
-                                               object:nil];
-
-    [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(applicationWillResignActive:)
-                                                 name:OWSApplicationWillResignActiveNotification
-                                               object:nil];
 
     [self ensureWindowState];
-}
-
-- (void)didChangeStatusBarFrame:(NSNotification *)notification
-{
-    // Apple bug? Upon returning from landscape, this method *is* fired, but both the notification and [UIApplication
-    // sharedApplication].statusBarFrame still show a height of 0. So to work around we also call
-    // `ensureReturnToCallWindowFrame` before showing the call banner.
-    [self ensureReturnToCallWindowFrame];
-}
-
-- (void)ensureReturnToCallWindowFrame
-{
-    CGRect newFrame = CurrentAppContext().frame;
-    newFrame.size.height = OWSWindowManagerCallBannerHeight();
-    OWSLogDebug(@"returnToCallWindowFrame: %@", NSStringFromCGRect(newFrame));
-    self.returnToCallWindow.frame = newFrame;
-}
-
-- (void)applicationWillResignActive:(NSNotification *)notification
-{
-    [self hideMenuActionsWindow];
 }
 
 - (UIWindow *)createReturnToCallWindow:(UIWindow *)rootWindow
@@ -227,40 +141,16 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
     OWSAssertIsOnMainThread();
     OWSAssertDebug(rootWindow);
 
-    // "Return to call" should remain at the top of the screen.
-    CGRect applicationFrame = CurrentAppContext().frame;
-    applicationFrame.size.height = OWSWindowManagerCallBannerHeight();
-    UIWindow *window = [[OWSWindow alloc] initWithFrame:applicationFrame];
+    UIWindow *window = [[OWSWindow alloc] initWithFrame:rootWindow.bounds];
     window.hidden = YES;
     window.windowLevel = UIWindowLevel_ReturnToCall();
     window.opaque = YES;
+    window.clipsToBounds = YES;
 
     ReturnToCallViewController *viewController = [ReturnToCallViewController new];
     self.returnToCallViewController = viewController;
-    viewController.delegate = self;
 
     window.rootViewController = viewController;
-
-    return window;
-}
-
-- (UIWindow *)createMenuActionsWindowWithRoowWindow:(UIWindow *)rootWindow
-{
-    UIWindow *window;
-    if (@available(iOS 11, *)) {
-        // On iOS11, setting the windowLevel is insufficient, so we override
-        // the `windowLevel` getter.
-        window = [[MessageActionsWindow alloc] initWithFrame:rootWindow.bounds];
-    } else {
-        // On iOS9, 10 overriding the `windowLevel` getter does not cause the
-        // window to be displayed above the keyboard, but setting the window
-        // level works.
-        window = [[OWSWindow alloc] initWithFrame:rootWindow.bounds];
-        window.windowLevel = UIWindowLevel_MessageActions();
-    }
-
-    window.hidden = YES;
-    window.backgroundColor = UIColor.clearColor;
 
     return window;
 }
@@ -274,11 +164,10 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
     window.hidden = YES;
     window.windowLevel = UIWindowLevel_CallView();
     window.opaque = YES;
-    // TODO: What's the right color to use here?
-    window.backgroundColor = UIColor.ows_signalBlueColor;
+    window.backgroundColor = Theme.launchScreenBackgroundColor;
 
     UIViewController *viewController = [OWSWindowRootViewController new];
-    viewController.view.backgroundColor = UIColor.ows_signalBlueColor;
+    viewController.view.backgroundColor = Theme.launchScreenBackgroundColor;
 
     // NOTE: Do not use OWSNavigationController for call window.
     // It adjusts the size of the navigation bar to reflect the
@@ -313,7 +202,7 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
     OWSAssertDebug(window);
 
     return (window == self.rootWindow || window == self.returnToCallWindow || window == self.callViewWindow
-        || window == self.menuActionsWindow || window == self.screenBlockingWindow);
+        || window == self.screenBlockingWindow);
 }
 
 - (void)updateWindowFrames
@@ -331,34 +220,9 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
     }
 }
 
-#pragma mark - Message Actions
-
-- (BOOL)isPresentingMenuActions
-{
-    return self.menuActionsViewController != nil;
-}
-
-- (void)showMenuActionsWindow:(UIViewController *)menuActionsViewController
-{
-    OWSAssertDebug(self.menuActionsViewController == nil);
-
-    self.menuActionsViewController = menuActionsViewController;
-    self.menuActionsWindow.rootViewController = menuActionsViewController;
-
-    [self ensureWindowState];
-}
-
-- (void)hideMenuActionsWindow
-{
-    self.menuActionsWindow.rootViewController = nil;
-    self.menuActionsViewController = nil;
-
-    [self ensureWindowState];
-}
-
 #pragma mark - Calls
 
-- (void)setCallViewController:(nullable UIViewController *)callViewController
+- (void)setCallViewController:(nullable UIViewController<CallViewControllerWindowReference> *)callViewController
 {
     OWSAssertIsOnMainThread();
 
@@ -371,11 +235,10 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
     [NSNotificationCenter.defaultCenter postNotificationName:OWSWindowManagerCallDidChangeNotification object:nil];
 }
 
-- (void)startCall:(UIViewController *)callViewController
+- (void)startCall:(UIViewController<CallViewControllerWindowReference> *)callViewController
 {
     OWSAssertIsOnMainThread();
     OWSAssertDebug(callViewController);
-    OWSAssertDebug(!self.callViewController);
 
     self.callViewController = callViewController;
 
@@ -391,7 +254,7 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
     [self ensureWindowState];
 }
 
-- (void)endCall:(UIViewController *)callViewController
+- (void)endCall:(UIViewController<CallViewControllerWindowReference> *)callViewController
 {
     OWSAssertIsOnMainThread();
     OWSAssertDebug(callViewController);
@@ -422,14 +285,20 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
     [self ensureWindowState];
 }
 
-- (void)showCallView
+- (void)returnToCallView
 {
     OWSAssertIsOnMainThread();
     OWSAssertDebug(self.callViewController);
-    OWSAssertDebug(!self.shouldShowCallView);
+
+    if (self.shouldShowCallView) {
+        [self ensureWindowState];
+        return;
+    }
 
     self.shouldShowCallView = YES;
 
+    [self.returnToCallViewController resignCall];
+    [self.callViewController returnFromPipWithPipWindow:self.returnToCallWindow];
     [self ensureWindowState];
 }
 
@@ -461,21 +330,18 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
         [self ensureRootWindowHidden];
         [self ensureReturnToCallWindowHidden];
         [self ensureCallViewWindowHidden];
-        [self ensureMessageActionsWindowHidden];
         [self ensureScreenBlockWindowShown];
     } else if (self.callViewController && self.shouldShowCallView) {
         // Show Call View.
 
         [self ensureRootWindowHidden];
-        [self ensureReturnToCallWindowHidden];
         [self ensureCallViewWindowShown];
-        [self ensureMessageActionsWindowHidden];
+        [self ensureReturnToCallWindowHidden];
         [self ensureScreenBlockWindowHidden];
     } else {
         // Show Root Window
 
         [self ensureRootWindowShown];
-        [self ensureCallViewWindowHidden];
         [self ensureScreenBlockWindowHidden];
 
         if (self.callViewController) {
@@ -486,16 +352,7 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
             [self ensureReturnToCallWindowHidden];
         }
 
-        if (self.menuActionsViewController) {
-            // Add "Message Actions" action sheet
-
-            [self ensureMessageActionsWindowShown];
-
-            // Don't hide rootWindow so as not to dismiss keyboard.
-            OWSAssertDebug(!self.rootWindow.isHidden);
-        } else {
-            [self ensureMessageActionsWindowHidden];
-        }
+        [self ensureCallViewWindowHidden];
     }
 }
 
@@ -536,10 +393,9 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
         return;
     }
 
-    [self ensureReturnToCallWindowFrame];
     OWSLogInfo(@"showing 'return to call' window.");
     self.returnToCallWindow.hidden = NO;
-    [self.returnToCallViewController startAnimating];
+    [self.returnToCallViewController displayForCallViewController:self.callViewController];
 }
 
 - (void)ensureReturnToCallWindowHidden
@@ -552,7 +408,6 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
 
     OWSLogInfo(@"hiding 'return to call' window.");
     self.returnToCallWindow.hidden = YES;
-    [self.returnToCallViewController stopAnimating];
 }
 
 - (void)ensureCallViewWindowShown
@@ -575,29 +430,6 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
     }
 
     self.callViewWindow.hidden = YES;
-}
-
-- (void)ensureMessageActionsWindowShown
-{
-    OWSAssertIsOnMainThread();
-
-    if (self.menuActionsWindow.hidden) {
-        OWSLogInfo(@"showing message actions window.");
-    }
-
-    // Do not make key, we want the keyboard to stay popped.
-    self.menuActionsWindow.hidden = NO;
-}
-
-- (void)ensureMessageActionsWindowHidden
-{
-    OWSAssertIsOnMainThread();
-
-    if (!self.menuActionsWindow.hidden) {
-        OWSLogInfo(@"hiding message actions window.");
-    }
-
-    self.menuActionsWindow.hidden = YES;
 }
 
 - (void)ensureScreenBlockWindowShown
@@ -624,13 +456,6 @@ const UIWindowLevel UIWindowLevel_MessageActions(void)
     // Instead, manipulate its window level to move it in front of
     // or behind the root window.
     self.screenBlockingWindow.windowLevel = UIWindowLevel_Background;
-}
-
-#pragma mark - ReturnToCallViewControllerDelegate
-
-- (void)returnToCallWasTapped:(ReturnToCallViewController *)viewController
-{
-    [self showCallView];
 }
 
 #pragma mark - Fixit

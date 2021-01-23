@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2020 Open Whisper Systems. All rights reserved.
 //
 
 import UIKit
@@ -36,7 +36,7 @@ class ContactCell: UITableViewCell {
         textStackView.axis = .vertical
         textStackView.addArrangedSubview(titleLabel)
 
-        contactImageView.autoSetDimensions(to: CGSize(width: CGFloat(ContactCell.kAvatarDiameter), height: CGFloat(ContactCell.kAvatarDiameter)))
+        contactImageView.autoSetDimensions(to: CGSize(square: CGFloat(ContactCell.kAvatarDiameter)))
 
         let contentColumns: UIStackView = UIStackView(arrangedSubviews: [contactImageView, textStackView])
         contentColumns.axis = .horizontal
@@ -70,7 +70,7 @@ class ContactCell: UITableViewCell {
         self.subtitleLabel.font = UIFont.ows_dynamicTypeSubheadline
     }
 
-    func configure(contact: Contact, subtitleType: SubtitleCellValue, showsWhenSelected: Bool, contactsManager: OWSContactsManager) {
+    func configure(contact: Contact, subtitleType: SubtitleCellValue, showsWhenSelected: Bool) {
 
         self.contact = contact
         self.showsWhenSelected = showsWhenSelected
@@ -94,7 +94,11 @@ class ContactCell: UITableViewCell {
                 contactIdForDeterminingBackgroundColor = contact.fullName
             }
 
-            let avatarBuilder = OWSContactAvatarBuilder(nonSignalName: contact.fullName,
+            var nameComponents = PersonNameComponents()
+            nameComponents.givenName = contact.firstName
+            nameComponents.familyName = contact.lastName
+
+            let avatarBuilder = OWSContactAvatarBuilder(nonSignalNameComponents: nameComponents,
                                                         colorSeed: contactIdForDeterminingBackgroundColor,
                                                         diameter: ContactCell.kAvatarDiameter)
 
@@ -150,7 +154,7 @@ fileprivate extension CNContact {
 
         if let attributedName = CNContactFormatter.attributedString(from: self, style: .fullName, defaultAttributes: nil) {
             let highlightedName = attributedName.mutableCopy() as! NSMutableAttributedString
-            highlightedName.enumerateAttributes(in: NSRange(location: 0, length: highlightedName.length), options: [], using: { (attrs, range, _) in
+            highlightedName.enumerateAttributes(in: highlightedName.entireRange, options: [], using: { (attrs, range, _) in
                 if let property = attrs[NSAttributedString.Key(rawValue: CNContactPropertyAttribute)] as? String, property == keyToHighlight {
                     highlightedName.addAttributes(boldAttributes, range: range)
                 }
